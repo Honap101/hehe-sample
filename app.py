@@ -3,6 +3,17 @@ import plotly.graph_objects as go
 from datetime import datetime
 import json
 
+# AI Integration
+try:
+    import google.generativeai as genai
+    AI_AVAILABLE = True
+    # Configure Gemini API
+    genai.configure(api_key="AIzaSyCdUmzsQLWDxBdxFR8up3NTYhsr9zmYO0w")
+    model = genai.GenerativeModel('gemini-pro')
+except ImportError:
+    AI_AVAILABLE = False
+    st.warning("Google AI not available. Install with: pip install google-generativeai")
+
 # Page config
 st.set_page_config(
     page_title="Fynstra – Financial Health Index", 
@@ -16,6 +27,144 @@ def initialize_session_state():
         st.session_state.user_data = {}
     if "calculation_history" not in st.session_state:
         st.session_state.calculation_history = []
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+
+def get_ai_response(user_question, fhi_context):
+    """Get response from Gemini AI with rate limit protection"""
+    if not AI_AVAILABLE:
+        return get_fallback_response(user_question, fhi_context)
+    
+    try:
+        # Check if we're hitting rate limits (simple cooldown)
+        import time
+        current_time = time.time()
+        
+        # Initialize rate limiting in session state
+        if 'last_ai_call' not in st.session_state:
+            st.session_state.last_ai_call = 0
+        if 'ai_call_count' not in st.session_state:
+            st.session_state.ai_call_count = 0
+        if 'daily_reset' not in st.session_state:
+            st.session_state.daily_reset = current_time
+        
+        # Reset daily counter
+        if current_time - st.session_state.daily_reset > 86400:  # 24 hours
+            st.session_state.ai_call_count = 0
+            st.session_state.daily_reset = current_time
+        
+        # Check daily limit (conservative: 100 per day for safety)
+        if st.session_state.ai_call_count >= 100:
+            st.warning("🤖 FYNyx has reached today's AI quota. Using smart fallback responses.")
+            return get_fallback_response(user_question, fhi_context)
+        
+        # Check rate limit (max 1 request per 4 seconds for safety)
+        if current_time - st.session_state.last_ai_call < 4:
+            remaining_time = 4 - (current_time - st.session_state.last_ai_call)
+            st.info(f"🤖 Please wait {remaining_time:.1f} seconds before next question...")
+            time.sleep(remaining_time)
+        
+        # Create detailed prompt with user context
+        fhi_score = fhi_context.get('FHI', 'Not calculated')
+        income = fhi_context.get('income', 0)
+        expenses = fhi_context.get('expenses', 0)
+        savings = fhi_context.get('savings', 0)
+        
+        prompt = f"""
+        You are FYNyx, an AI financial advisor specifically designed for Filipino users. You provide practical, culturally-aware financial advice.
+
+        IMPORTANT CONTEXT:
+        - User is Filipino, use Philippine financial context
+        - Mention Philippine financial products when relevant (SSS, Pag-IBIG, GSIS, BPI, BDO, etc.)
+        - Use Philippine Peso (₱) in examples
+        - Consider Philippine economic conditions
+        
+        USER'S FINANCIAL PROFILE:
+        - FHI Score: {fhi_score}/100
+        - Monthly Income: ₱{income:,.0f}
+        - Monthly Expenses: ₱{expenses:,.0f}
+        - Monthly Savings: ₱{savings:,.0f}
+        
+        USER'S QUESTION: {user_question}
+        
+        INSTRUCTIONS:
+        - Provide specific, actionable advice
+        - Keep response under 150 words
+        - Use friendly, encouraging tone
+        - Include specific numbers/percentages when helpful
+        - Mention relevant Philippine financial institutions or products if applicable
+        - If FHI score is low (<50), prioritize emergency fund and debt reduction
+        - If FHI score is medium (50-70), focus on investment and optimization
+        - If FHI score is high (>70), discuss advanced strategies
+        
+        Start your response with a brief acknowledgment of their question, then provide clear advice.
+        """
+        
+        # Make the API call
+        response = model.generate_content(prompt)
+        
+        # Update rate limiting counters
+        st.session_state.last_ai_call = current_time
+        st.session_state.ai_call_count += 1
+        
+        return response.text
+        
+    except Exception as e:
+        error_msg = str(e).lower()
+        
+        # Handle specific API errors
+        if "quota" in error_msg or "limit" in error_msg:
+            st.warning("🤖 FYNyx has reached the free API limit. Using smart fallback responses.")
+        elif "rate" in error_msg:
+            st.info("🤖 FYNyx is being rate limited. Please wait a moment before asking again.")
+        else:
+            st.warning(f"🤖 FYNyx is temporarily unavailable. Using smart fallback responses.")
+        
+        return get_fallback_response(user_question, fhi_context)
+
+def get_fallback_response(user_question, fhi_context):
+    """Fallback responses when AI is unavailable"""
+    question_lower = user_question.lower()
+    fhi_score = fhi_context.get('FHI', 0)
+    income = fhi_context.get('income', 0)
+    expenses = fhi_context.get('expenses', 0)
+    
+    if "emergency" in question_lower:
+        target_emergency = expenses * 6
+        monthly_target = target_emergency / 12
+        return f"Build an emergency fund of ₱{target_emergency:,.0f} (6 months of expenses). Save ₱{monthly_target:,.0f} monthly to reach this in a year. Keep it in a high-yield savings account like BPI or BDO."
+    
+    elif "debt" in question_lower:
+        if fhi_score < 50:
+            return "Focus on high-interest debt first (credit cards, personal loans). Pay minimums on everything, then put extra money toward the highest interest rate debt. Consider debt consolidation with lower rates."
+        else:
+            return "You're managing debt well! Continue current payments and avoid taking on new high-interest debt. Consider investing surplus funds."
+    
+    elif "invest" in question_lower or "investment" in question_lower:
+        if income < 30000:
+            return "Start small with ₱1,000/month in index funds like FMETF or mutual funds from BPI/BDO. Focus on emergency fund first, then gradually increase investments."
+        else:
+            return "Consider diversifying: 60% stocks (FMETF, blue chips like SM, Ayala), 30% bonds (government treasury), 10% alternative investments. Start with ₱5,000-10,000 monthly."
+    
+    elif "save" in question_lower or "savings" in question_lower:
+        savings_rate = (fhi_context.get('savings', 0) / income * 100) if income > 0 else 0
+        target_rate = 20
+        if savings_rate < target_rate:
+            needed_increase = (target_rate/100 * income) - fhi_context.get('savings', 0)
+            return f"Your savings rate is {savings_rate:.1f}%. Aim for 20% (₱{target_rate/100 * income:,.0f}/month). Increase by ₱{needed_increase:,.0f} monthly through expense reduction or income increase."
+        else:
+            return f"Excellent {savings_rate:.1f}% savings rate! Consider automating transfers and exploring higher-yield options like time deposits or money market funds."
+    
+    elif "retirement" in question_lower:
+        return "Maximize SSS contributions first, then add private retirement accounts. Aim to save 10-15% of income for retirement. Consider PERA (Personal Equity Retirement Account) for tax benefits."
+    
+    else:
+        if fhi_score < 50:
+            return "Focus on basics: emergency fund (3-6 months expenses), pay down high-interest debt, and track your spending. Build a solid foundation before investing."
+        elif fhi_score < 70:
+            return "You're on the right track! Optimize your budget, increase investments gradually, and consider insurance for protection. Review and adjust quarterly."
+        else:
+            return "Great financial health! Consider advanced strategies: real estate investment, business opportunities, or international diversification. Consult a certified financial planner."
 
 def validate_financial_inputs(income, expenses, debt, savings):
     """Validate user financial inputs"""
@@ -225,6 +374,12 @@ initialize_session_state()
 st.title("⌧ Fynstra")
 st.markdown("### AI-Powered Financial Health Platform for Filipinos")
 
+# Show AI status
+if AI_AVAILABLE:
+    st.success("🤖 FYNyx AI is online and ready to help!")
+else:
+    st.warning("🤖 FYNyx AI is in basic mode. Install google-generativeai for full AI features.")
+
 # Sidebar for navigation
 st.sidebar.title("Navigation")
 page = st.sidebar.selectbox("Choose a feature:", ["Financial Health Calculator", "Goal Tracker", "FYNyx Chatbot"])
@@ -425,51 +580,133 @@ elif page == "Goal Tracker":
                         st.warning(f"⚠️ Increase savings by ₱{shortfall:,.0f}/month")
 
 elif page == "FYNyx Chatbot":
-    st.subheader("🤖 FYNyx - Your Financial Assistant")
+    st.subheader("🤖 FYNyx - Your AI Financial Assistant")
+    
+    # Show AI usage status
+    if AI_AVAILABLE:
+        ai_calls_today = st.session_state.get('ai_call_count', 0)
+        remaining_calls = max(0, 100 - ai_calls_today)
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("AI Status", "🟢 Online" if remaining_calls > 0 else "🟡 Limited")
+        with col2:
+            st.metric("AI Calls Used Today", f"{ai_calls_today}/100")
+        with col3:
+            st.metric("Remaining Calls", f"{remaining_calls}")
+        
+        if remaining_calls < 10:
+            st.warning("⚠️ Approaching daily AI limit. FYNyx will switch to smart fallback responses soon.")
+        elif remaining_calls == 0:
+            st.info("💡 Daily AI limit reached. FYNyx is using smart fallback responses until tomorrow.")
+    
+    # Display chat history
+    if st.session_state.chat_history:
+        st.markdown("### Previous Conversations")
+        for i, chat in enumerate(st.session_state.chat_history[-5:]):  # Show last 5 conversations
+            with st.expander(f"Q: {chat['question'][:50]}..." if len(chat['question']) > 50 else f"Q: {chat['question']}"):
+                st.markdown(f"**You asked:** {chat['question']}")
+                st.markdown(f"**FYNyx replied:** {chat['response']}")
+                st.caption(f"Asked on {chat['timestamp']}")
+                
+                # Show if response was AI or fallback
+                if 'was_ai_response' in chat:
+                    if chat['was_ai_response']:
+                        st.caption("🤖 AI-powered response")
+                    else:
+                        st.caption("🧠 Smart fallback response")
     
     with st.container(border=True):
-        st.markdown("Ask FYNyx about your finances and get personalized advice!")
+        st.markdown("Ask FYNyx about your finances and get personalized AI-powered advice!")
         
-        user_question = st.text_input("Ask FYNyx:", 
-                                      placeholder="e.g., How can I improve my emergency fund?")
+        # Sample questions
+        st.markdown("**Try asking:**")
+        sample_questions = [
+            "How can I improve my emergency fund?",
+            "What investments are good for beginners in the Philippines?",
+            "How should I pay off my debt faster?",
+            "What's a good savings rate for someone my age?",
+            "Should I invest in stocks or save more first?"
+        ]
         
-        if st.button("Ask FYNyx") and user_question:
-            with st.spinner("FYNyx is thinking..."):
-                # Simulated AI responses (replace with actual API integration)
-                responses = {
-                    "emergency": "Based on your expenses, aim for 6 months of emergency funds. Start by setting aside 10% of your income monthly in a high-yield savings account.",
-                    "debt": "Focus on paying high-interest debt first (credit cards), then tackle other loans. Consider the debt avalanche method.",
-                    "invest": "For Filipinos, consider starting with index funds like FMETF or blue-chip stocks. Diversify across different asset classes.",
-                    "save": "Automate your savings! Set up automatic transfers to separate accounts for different goals (emergency, retirement, vacation).",
-                    "retirement": "Start early with SSS, then add private retirement accounts. Aim to save 10-15% of income for retirement."
+        cols = st.columns(len(sample_questions))
+        for i, question in enumerate(sample_questions):
+            if cols[i % len(cols)].button(f"💡 {question}", key=f"sample_{i}"):
+                st.session_state.current_question = question
+        
+        user_question = st.text_input(
+            "Ask FYNyx:", 
+            value=st.session_state.get('current_question', ''),
+            placeholder="e.g., How can I improve my emergency fund?",
+            key="user_question"
+        )
+        
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            ask_button = st.button("🚀 Ask FYNyx", type="primary")
+        with col2:
+            if st.button("🗑️ Clear Chat History"):
+                st.session_state.chat_history = []
+                st.success("Chat history cleared!")
+                st.experimental_rerun()
+        
+        if ask_button and user_question.strip():
+            with st.spinner("🤖 FYNyx is analyzing your question..."):
+                # Prepare context for AI
+                fhi_context = {
+                    'FHI': st.session_state.get('FHI', 0),
+                    'income': st.session_state.get('monthly_income', 0),
+                    'expenses': st.session_state.get('monthly_expenses', 0),
+                    'savings': st.session_state.get('current_savings', 0)
                 }
                 
-                # Simple keyword matching (replace with actual AI)
-                response = "I'd recommend focusing on building your emergency fund first, then increasing your investment allocation. Consider consulting with a certified financial planner for personalized advice."
+                # Get AI response
+                response = get_ai_response(user_question, fhi_context)
                 
-                for keyword, suggested_response in responses.items():
-                    if keyword in user_question.lower():
-                        response = suggested_response
-                        break
+                # Display response
+                st.markdown("### 🤖 FYNyx's Response:")
+                st.info(response)
                 
-                if "FHI" in st.session_state:
-                    fhi_context = f" With your current FHI score of {st.session_state['FHI']}, "
-                    response = fhi_context + response
+                # Save to chat history
+                chat_entry = {
+                    'question': user_question,
+                    'response': response,
+                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'fhi_context': fhi_context
+                }
+                st.session_state.chat_history.append(chat_entry)
                 
-                st.info(f"🤖 **FYNyx says:** {response}")
+                # Clear the current question
+                if 'current_question' in st.session_state:
+                    del st.session_state.current_question
                 
-                # Quick action buttons
+                # Quick action buttons based on response
                 st.markdown("**Quick Actions:**")
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    if st.button("💰 Improve Savings"):
-                        st.info("💡 Try the 50/30/20 rule: 50% needs, 30% wants, 20% savings/debt payments")
+                    if st.button("💰 More Savings Tips"):
+                        st.session_state.current_question = "Give me more specific tips to increase my savings rate"
+                        st.experimental_rerun()
                 with col2:
-                    if st.button("📈 Investment Tips"):
-                        st.info("💡 Start with low-cost index funds. Dollar-cost averaging can help reduce risk.")
+                    if st.button("📈 Investment Advice"):
+                        st.session_state.current_question = "What specific investments should I consider for my situation?"
+                        st.experimental_rerun()
                 with col3:
                     if st.button("🏦 Debt Strategy"):
-                        st.info("💡 List all debts by interest rate. Pay minimums on all, extra on highest rate debt.")
+                        st.session_state.current_question = "What's the best strategy for my debt situation?"
+                        st.experimental_rerun()
+        
+        # Show context awareness
+        if "FHI" in st.session_state:
+            st.markdown("---")
+            st.markdown("**🎯 FYNyx knows your context:**")
+            context_col1, context_col2, context_col3 = st.columns(3)
+            with context_col1:
+                st.metric("Your FHI", f"{st.session_state['FHI']}")
+            with context_col2:
+                st.metric("Monthly Income", f"₱{st.session_state.get('monthly_income', 0):,.0f}")
+            with context_col3:
+                st.metric("Monthly Savings", f"₱{st.session_state.get('current_savings', 0):,.0f}")
 
 # Footer
 st.markdown("---")
