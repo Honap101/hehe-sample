@@ -2,7 +2,24 @@ import streamlit as st
 import plotly.graph_objects as go
 from datetime import datetime
 import json
-import google.generativeai as genai
+
+# AI Integration
+try:
+    import google.generativeai as genai
+    AI_AVAILABLE = True
+    # Configure Gemini API
+    genai.configure(api_key="AIzaSyCdUmzsQLWDxBdxFR8up3NTYhsr9zmYO0w")
+    model = genai.GenerativeModel('gemini-pro')
+except ImportError:
+    AI_AVAILABLE = False
+    st.warning("Google AI not available. Install with: pip install google-generativeai")
+
+# Page config
+st.set_page_config(
+    page_title="Fynstra – Financial Health Index", 
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
 
 # Initialize session state
 def initialize_session_state():
@@ -14,18 +31,53 @@ def initialize_session_state():
         st.session_state.chat_history = []
 
 def get_ai_response(user_question, fhi_context):
+    """Get response from Gemini AI"""
     if not AI_AVAILABLE:
-        st.error("🚨 Google AI library not installed!")
         return get_fallback_response(user_question, fhi_context)
     
     try:
-        st.info("🤖 Sending request to Gemini AI...")  # Debug message
+        # Create detailed prompt with user context
+        fhi_score = fhi_context.get('FHI', 'Not calculated')
+        income = fhi_context.get('income', 0)
+        expenses = fhi_context.get('expenses', 0)
+        savings = fhi_context.get('savings', 0)
+        
+        prompt = f"""
+        You are FYNyx, an AI financial advisor specifically designed for Filipino users. You provide practical, culturally-aware financial advice.
+
+        IMPORTANT CONTEXT:
+        - User is Filipino, use Philippine financial context
+        - Mention Philippine financial products when relevant (SSS, Pag-IBIG, GSIS, BPI, BDO, etc.)
+        - Use Philippine Peso (₱) in examples
+        - Consider Philippine economic conditions
+        - If the question is not financial, politely redirect to financial topics
+        
+        USER'S FINANCIAL PROFILE:
+        - FHI Score: {fhi_score}/100
+        - Monthly Income: ₱{income:,.0f}
+        - Monthly Expenses: ₱{expenses:,.0f}
+        - Monthly Savings: ₱{savings:,.0f}
+        
+        USER'S QUESTION: {user_question}
+        
+        INSTRUCTIONS:
+        - Provide specific, actionable advice
+        - Keep response under 150 words
+        - Use friendly, encouraging tone
+        - Include specific numbers/percentages when helpful
+        - Mention relevant Philippine financial institutions or products if applicable
+        - If FHI score is low (<50), prioritize emergency fund and debt reduction
+        - If FHI score is medium (50-70), focus on investment and optimization
+        - If FHI score is high (>70), discuss advanced strategies
+        
+        Start your response with a brief acknowledgment of their question, then provide clear advice.
+        """
+        
         response = model.generate_content(prompt)
-        st.success("✅ Got AI response!")  # Debug message
         return response.text
         
     except Exception as e:
-        st.error(f"🚨 AI Error: {str(e)}")  # Shows the actual error
+        st.error(f"AI temporarily unavailable: {str(e)}")
         return get_fallback_response(user_question, fhi_context)
 
 def get_fallback_response(user_question, fhi_context):
@@ -34,6 +86,10 @@ def get_fallback_response(user_question, fhi_context):
     fhi_score = fhi_context.get('FHI', 0)
     income = fhi_context.get('income', 0)
     expenses = fhi_context.get('expenses', 0)
+    
+    # Handle non-financial questions
+    if not any(keyword in question_lower for keyword in ['money', 'save', 'invest', 'debt', 'financial', 'emergency', 'retirement', 'income', 'expense', 'fund', 'bank', 'loan']):
+        return "I'm FYNyx, your financial advisor! While I can't help with non-financial questions, I'm here to assist with your financial health. Would you like to discuss savings strategies, investments, or debt management instead?"
     
     if "emergency" in question_lower:
         target_emergency = expenses * 6
