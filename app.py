@@ -614,15 +614,20 @@ elif page == "FYNyx Chatbot":
         cols = st.columns(len(sample_questions))
         for i, question in enumerate(sample_questions):
             if cols[i % len(cols)].button(f"💡 {question}", key=f"sample_{i}"):
-                st.session_state.user_question = question
+                st.session_state.preset_question = question
                 st.rerun()
         
         user_question = st.text_input(
             "Ask FYNyx:", 
-            value=st.session_state.get('user_question', ''),
             placeholder="e.g., How can I improve my emergency fund?",
             key="question_input"
         )
+        
+        # Check if there's a preset question from buttons
+        if 'preset_question' in st.session_state:
+            user_question = st.session_state.preset_question
+            # Clear the preset question after using it
+            del st.session_state.preset_question
         
         col1, col2 = st.columns([1, 4])
         with col1:
@@ -633,7 +638,13 @@ elif page == "FYNyx Chatbot":
                 st.success("Chat history cleared!")
                 st.rerun()
         
-        if ask_button and user_question.strip():
+        # Handle preset questions or user input
+        question_to_process = user_question
+        if 'preset_question' in st.session_state:
+            question_to_process = st.session_state.preset_question
+            ask_button = True  # Auto-trigger for preset questions
+        
+        if ask_button and question_to_process and question_to_process.strip():
             with st.spinner("🤖 FYNyx is analyzing your question..."):
                 # Prepare context for AI
                 fhi_context = {
@@ -644,7 +655,7 @@ elif page == "FYNyx Chatbot":
                 }
                 
                 # Get AI response
-                response = get_ai_response(user_question, fhi_context)
+                response = get_ai_response(question_to_process, fhi_context)
                 
                 # Display response
                 st.markdown("### 🤖 FYNyx's Response:")
@@ -652,7 +663,7 @@ elif page == "FYNyx Chatbot":
                 
                 # Save to chat history
                 chat_entry = {
-                    'question': user_question,
+                    'question': question_to_process,
                     'response': response,
                     'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     'fhi_context': fhi_context,
@@ -660,24 +671,24 @@ elif page == "FYNyx Chatbot":
                 }
                 st.session_state.chat_history.append(chat_entry)
                 
-                # Clear the question from session state
-                if 'user_question' in st.session_state:
-                    del st.session_state.user_question
+                # Clear any preset question
+                if 'preset_question' in st.session_state:
+                    del st.session_state.preset_question
                 
                 # Quick action buttons based on response
                 st.markdown("**Quick Actions:**")
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     if st.button("💰 More Savings Tips", key="savings_tip"):
-                        st.session_state.user_question = "Give me more specific tips to increase my savings rate"
+                        st.session_state.preset_question = "Give me more specific tips to increase my savings rate"
                         st.rerun()
                 with col2:
                     if st.button("📈 Investment Advice", key="investment_tip"):
-                        st.session_state.user_question = "What specific investments should I consider for my situation?"
+                        st.session_state.preset_question = "What specific investments should I consider for my situation?"
                         st.rerun()
                 with col3:
                     if st.button("🏦 Debt Strategy", key="debt_tip"):
-                        st.session_state.user_question = "What's the best strategy for my debt situation?"
+                        st.session_state.preset_question = "What's the best strategy for my debt situation?"
                         st.rerun()
         
         # Show context awareness
