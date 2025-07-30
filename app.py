@@ -586,48 +586,6 @@ elif page == "Goal Tracker":
 elif page == "FYNyx Chatbot":
     st.subheader("🤖 FYNyx - Your AI Financial Assistant")
     
-    # Handle auto-processing immediately when page loads
-    if st.session_state.get('trigger_auto_ask', False):
-        # Auto-process the question
-        user_question = st.session_state.get('user_question', '')
-        if user_question.strip():
-            # Reset the trigger immediately
-            st.session_state.trigger_auto_ask = False
-            
-            # Process the question
-            with st.spinner("🤖 FYNyx is analyzing your question..."):
-                # Prepare context for AI
-                fhi_context = {
-                    'FHI': st.session_state.get('FHI', 0),
-                    'income': st.session_state.get('monthly_income', 0),
-                    'expenses': st.session_state.get('monthly_expenses', 0),
-                    'savings': st.session_state.get('current_savings', 0)
-                }
-                
-                # Get AI response
-                if AI_AVAILABLE and model:
-                    response = get_ai_response(user_question, fhi_context, model)
-                else:
-                    response = get_fallback_response(user_question, fhi_context)
-                
-                # Display response
-                st.markdown("### 🤖 FYNyx's Response:")
-                st.info(response)
-                
-                # Save to chat history
-                chat_entry = {
-                    'question': user_question,
-                    'response': response,
-                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    'fhi_context': fhi_context,
-                    'was_ai_response': AI_AVAILABLE
-                }
-                st.session_state.chat_history.append(chat_entry)
-                
-                # Clear the question from session state
-                if 'user_question' in st.session_state:
-                    del st.session_state.user_question
-    
     # Display chat history
     if st.session_state.chat_history:
         st.markdown("### Previous Conversations")
@@ -661,7 +619,7 @@ elif page == "FYNyx Chatbot":
         for i, question in enumerate(sample_questions):
             if cols[i % len(cols)].button(f"💡 {question}", key=f"sample_{i}"):
                 st.session_state.user_question = question
-                st.session_state.trigger_auto_ask = True
+                st.session_state.auto_process_question = True
                 st.rerun()
         
         user_question = st.text_input(
@@ -680,8 +638,13 @@ elif page == "FYNyx Chatbot":
                 st.success("Chat history cleared!")
                 st.rerun()
         
-        # Check if there's a question to process from button click
+        # Check if there's a question to process (either from button click or auto-set)
         should_process = ask_button and user_question.strip()
+        
+        # Also process if question was auto-set and exists
+        if not should_process and user_question.strip() and st.session_state.get('auto_process_question', False):
+            should_process = True
+            st.session_state.auto_process_question = False  # Reset the flag
         
         if should_process:
             with st.spinner("🤖 FYNyx is analyzing your question..."):
@@ -723,17 +686,17 @@ elif page == "FYNyx Chatbot":
                 with col1:
                     if st.button("💰 More Savings Tips", key="savings_tip"):
                         st.session_state.user_question = "Give me more specific tips to increase my savings rate"
-                        st.session_state.trigger_auto_ask = True
+                        st.session_state.auto_process_question = True
                         st.rerun()
                 with col2:
                     if st.button("📈 Investment Advice", key="investment_tip"):
                         st.session_state.user_question = "What specific investments should I consider for my situation?"
-                        st.session_state.trigger_auto_ask = True
+                        st.session_state.auto_process_question = True
                         st.rerun()
                 with col3:
                     if st.button("🏦 Debt Strategy", key="debt_tip"):
                         st.session_state.user_question = "What's the best strategy for my debt situation?"
-                        st.session_state.trigger_auto_ask = True
+                        st.session_state.auto_process_question = True
                         st.rerun()
         
         # Show context awareness
