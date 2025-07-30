@@ -552,7 +552,7 @@ elif page == "Goal Tracker":
     if "FHI" not in st.session_state:
         st.info("Please calculate your FHI score first to use the Goal Tracker.")
         if st.button("Go to Calculator"):
-            st.experimental_rerun()
+            st.rerun()
     else:
         with st.container(border=True):
             st.markdown("Set and track your financial goals")
@@ -581,24 +581,6 @@ elif page == "Goal Tracker":
 
 elif page == "FYNyx Chatbot":
     st.subheader("🤖 FYNyx - Your AI Financial Assistant")
-    
-    # Show AI usage status
-    if AI_AVAILABLE:
-        ai_calls_today = st.session_state.get('ai_call_count', 0)
-        remaining_calls = max(0, 100 - ai_calls_today)
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("AI Status", "🟢 Online" if remaining_calls > 0 else "🟡 Limited")
-        with col2:
-            st.metric("AI Calls Used Today", f"{ai_calls_today}/100")
-        with col3:
-            st.metric("Remaining Calls", f"{remaining_calls}")
-        
-        if remaining_calls < 10:
-            st.warning("⚠️ Approaching daily AI limit. FYNyx will switch to smart fallback responses soon.")
-        elif remaining_calls == 0:
-            st.info("💡 Daily AI limit reached. FYNyx is using smart fallback responses until tomorrow.")
     
     # Display chat history
     if st.session_state.chat_history:
@@ -632,13 +614,14 @@ elif page == "FYNyx Chatbot":
         cols = st.columns(len(sample_questions))
         for i, question in enumerate(sample_questions):
             if cols[i % len(cols)].button(f"💡 {question}", key=f"sample_{i}"):
-                st.session_state.current_question = question
+                st.session_state.user_question = question
+                st.rerun()
         
         user_question = st.text_input(
             "Ask FYNyx:", 
-            value=st.session_state.get('current_question', ''),
+            value=st.session_state.get('user_question', ''),
             placeholder="e.g., How can I improve my emergency fund?",
-            key="user_question"
+            key="question_input"
         )
         
         col1, col2 = st.columns([1, 4])
@@ -648,7 +631,7 @@ elif page == "FYNyx Chatbot":
             if st.button("🗑️ Clear Chat History"):
                 st.session_state.chat_history = []
                 st.success("Chat history cleared!")
-                st.experimental_rerun()
+                st.rerun()
         
         if ask_button and user_question.strip():
             with st.spinner("🤖 FYNyx is analyzing your question..."):
@@ -672,29 +655,30 @@ elif page == "FYNyx Chatbot":
                     'question': user_question,
                     'response': response,
                     'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    'fhi_context': fhi_context
+                    'fhi_context': fhi_context,
+                    'was_ai_response': AI_AVAILABLE
                 }
                 st.session_state.chat_history.append(chat_entry)
                 
-                # Clear the current question
-                if 'current_question' in st.session_state:
-                    del st.session_state.current_question
+                # Clear the question from session state
+                if 'user_question' in st.session_state:
+                    del st.session_state.user_question
                 
                 # Quick action buttons based on response
                 st.markdown("**Quick Actions:**")
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    if st.button("💰 More Savings Tips"):
-                        st.session_state.current_question = "Give me more specific tips to increase my savings rate"
-                        st.experimental_rerun()
+                    if st.button("💰 More Savings Tips", key="savings_tip"):
+                        st.session_state.user_question = "Give me more specific tips to increase my savings rate"
+                        st.rerun()
                 with col2:
-                    if st.button("📈 Investment Advice"):
-                        st.session_state.current_question = "What specific investments should I consider for my situation?"
-                        st.experimental_rerun()
+                    if st.button("📈 Investment Advice", key="investment_tip"):
+                        st.session_state.user_question = "What specific investments should I consider for my situation?"
+                        st.rerun()
                 with col3:
-                    if st.button("🏦 Debt Strategy"):
-                        st.session_state.current_question = "What's the best strategy for my debt situation?"
-                        st.experimental_rerun()
+                    if st.button("🏦 Debt Strategy", key="debt_tip"):
+                        st.session_state.user_question = "What's the best strategy for my debt situation?"
+                        st.rerun()
         
         # Show context awareness
         if "FHI" in st.session_state:
