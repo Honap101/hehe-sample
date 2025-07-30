@@ -633,7 +633,6 @@ elif page == "FYNyx Chatbot":
                 st.success("Chat history cleared!")
                 st.rerun()
         
-        # This processing logic is unchanged
         should_process = ask_button and user_question.strip()
         
         if not should_process and user_question.strip() and st.session_state.get('auto_process_question', False):
@@ -671,9 +670,6 @@ elif page == "FYNyx Chatbot":
                 if 'user_question' in st.session_state:
                     del st.session_state.user_question
         
-        # --- FIX IS HERE ---
-        # Move the Quick Action buttons outside the `should_process` block.
-        # Show them only if a conversation has started.
         if st.session_state.chat_history:
             st.markdown("**Quick Actions:**")
             col1, col2, col3 = st.columns(3)
@@ -693,7 +689,6 @@ elif page == "FYNyx Chatbot":
                     st.session_state.auto_process_question = True
                     st.rerun()
 
-    # Context awareness section (Your existing code for this is fine)
     if "FHI" in st.session_state:
         st.markdown("---")
         st.markdown("**🎯 FYNyx knows your context:**")
