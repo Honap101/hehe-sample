@@ -376,7 +376,6 @@ else:
 st.sidebar.title("Navigation")
 page = st.sidebar.selectbox("Choose a feature:", ["Financial Health Calculator", "Goal Tracker", "FYNyx Chatbot"])
 
-
 # ===============================
 # TAB 1: FINANCIAL HEALTH CALCULATOR
 # ===============================
