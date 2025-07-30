@@ -586,6 +586,11 @@ elif page == "Goal Tracker":
 elif page == "FYNyx Chatbot":
     st.subheader("🤖 FYNyx - Your AI Financial Assistant")
     
+    # Check for auto-processing at the very beginning
+    auto_process_question = st.session_state.get('auto_process_question', False)
+    if auto_process_question:
+        st.session_state.auto_process_question = False  # Reset flag immediately
+    
     # Display chat history
     if st.session_state.chat_history:
         st.markdown("### Previous Conversations")
@@ -639,10 +644,7 @@ elif page == "FYNyx Chatbot":
                 st.rerun()
         
         # Auto-process question if it was set by quick action buttons
-        should_process = False
-        if st.session_state.get('auto_process_question', False):
-            should_process = True
-            st.session_state.auto_process_question = False  # Reset flag
+        should_process = auto_process_question
         
         if (ask_button and user_question.strip()) or should_process:
             with st.spinner("🤖 FYNyx is analyzing your question..."):
