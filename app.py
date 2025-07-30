@@ -619,6 +619,7 @@ elif page == "FYNyx Chatbot":
         for i, question in enumerate(sample_questions):
             if cols[i % len(cols)].button(f"💡 {question}", key=f"sample_{i}"):
                 st.session_state.user_question = question
+                st.session_state.auto_process_question = True
                 st.rerun()
         
         user_question = st.text_input(
@@ -637,7 +638,13 @@ elif page == "FYNyx Chatbot":
                 st.success("Chat history cleared!")
                 st.rerun()
         
-        if ask_button and user_question.strip():
+        # Auto-process question if it was set by quick action buttons
+        should_process = False
+        if st.session_state.get('auto_process_question', False):
+            should_process = True
+            st.session_state.auto_process_question = False  # Reset flag
+        
+        if (ask_button and user_question.strip()) or should_process:
             with st.spinner("🤖 FYNyx is analyzing your question..."):
                 # Prepare context for AI
                 fhi_context = {
@@ -677,14 +684,17 @@ elif page == "FYNyx Chatbot":
                 with col1:
                     if st.button("💰 More Savings Tips", key="savings_tip"):
                         st.session_state.user_question = "Give me more specific tips to increase my savings rate"
+                        st.session_state.auto_process_question = True
                         st.rerun()
                 with col2:
                     if st.button("📈 Investment Advice", key="investment_tip"):
                         st.session_state.user_question = "What specific investments should I consider for my situation?"
+                        st.session_state.auto_process_question = True
                         st.rerun()
                 with col3:
                     if st.button("🏦 Debt Strategy", key="debt_tip"):
                         st.session_state.user_question = "What's the best strategy for my debt situation?"
+                        st.session_state.auto_process_question = True
                         st.rerun()
         
         # Show context awareness
