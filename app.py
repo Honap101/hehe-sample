@@ -7,19 +7,23 @@ import json
 try:
     import google.generativeai as genai
     AI_AVAILABLE = True
-    # Configure Gemini API
-    genai.configure(api_key="secret")
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    
+    # Get API key from Streamlit secrets only
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.5-flash")
+    except KeyError:
+        st.error("⚠️ GEMINI_API_KEY not found in Streamlit secrets")
+        st.info("💡 Add your API key in the Secrets section of your Streamlit Cloud app")
+        AI_AVAILABLE = False
+    except Exception as e:
+        st.error(f"AI configuration error: {str(e)}")
+        AI_AVAILABLE = False
+        
 except ImportError:
     AI_AVAILABLE = False
     st.warning("Google AI not available. Install with: pip install google-generativeai")
-
-# Page config
-st.set_page_config(
-    page_title="Fynstra – Financial Health Index", 
-    layout="centered",
-    initial_sidebar_state="collapsed"
-)
 
 # Initialize session state
 def initialize_session_state():
