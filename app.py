@@ -586,21 +586,26 @@ elif page == "Goal Tracker":
 elif page == "FYNyx Chatbot":
     st.subheader("🤖 FYNyx - Your AI Financial Assistant")
     
-    # Display chat history (Your existing code for this is fine)
+    # Display chat history
     if st.session_state.chat_history:
         st.markdown("### Previous Conversations")
-        for i, chat in enumerate(st.session_state.chat_history[-5:]):
+        for i, chat in enumerate(st.session_state.chat_history[-5:]):  # Show last 5 conversations
             with st.expander(f"Q: {chat['question'][:50]}..." if len(chat['question']) > 50 else f"Q: {chat['question']}"):
                 st.markdown(f"**You asked:** {chat['question']}")
                 st.markdown(f"**FYNyx replied:** {chat['response']}")
                 st.caption(f"Asked on {chat['timestamp']}")
+                
+                # Show if response was AI or fallback
                 if 'was_ai_response' in chat:
-                    st.caption("🤖 AI-powered response" if chat['was_ai_response'] else "🧠 Smart fallback response")
+                    if chat['was_ai_response']:
+                        st.caption("🤖 AI-powered response")
+                    else:
+                        st.caption("🧠 Smart fallback response")
     
     with st.container(border=True):
         st.markdown("Ask FYNyx about your finances and get personalized AI-powered advice!")
         
-        # Sample questions (Your existing code for this is fine)
+        # Sample questions
         st.markdown("**Try asking:**")
         sample_questions = [
             "How can I improve my emergency fund?",
@@ -633,14 +638,17 @@ elif page == "FYNyx Chatbot":
                 st.success("Chat history cleared!")
                 st.rerun()
         
+        # Check if there's a question to process (either from button click or auto-set)
         should_process = ask_button and user_question.strip()
         
+        # Also process if question was auto-set and exists
         if not should_process and user_question.strip() and st.session_state.get('auto_process_question', False):
             should_process = True
-            st.session_state.auto_process_question = False
+            st.session_state.auto_process_question = False  # Reset the flag
         
         if should_process:
             with st.spinner("🤖 FYNyx is analyzing your question..."):
+                # Prepare context for AI
                 fhi_context = {
                     'FHI': st.session_state.get('FHI', 0),
                     'income': st.session_state.get('monthly_income', 0),
@@ -648,6 +656,7 @@ elif page == "FYNyx Chatbot":
                     'savings': st.session_state.get('current_savings', 0)
                 }
                 
+                # Get AI response
                 if AI_AVAILABLE and model:
                     response = get_ai_response(user_question, fhi_context, model)
                 else:
@@ -667,38 +676,41 @@ elif page == "FYNyx Chatbot":
                 }
                 st.session_state.chat_history.append(chat_entry)
                 
+                # Clear the question from session state
                 if 'user_question' in st.session_state:
                     del st.session_state.user_question
+                
+                # Quick action buttons based on response
+                st.markdown("**Quick Actions:**")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    if st.button("💰 More Savings Tips", key="savings_tip"):
+                        st.session_state.user_question = "Give me more specific tips to increase my savings rate"
+                        st.session_state.auto_process_question = True
+                        st.rerun()
+                with col2:
+                    if st.button("📈 Investment Advice", key="investment_tip"):
+                        st.session_state.user_question = "What specific investments should I consider for my situation?"
+                        st.session_state.auto_process_question = True
+                        st.rerun()
+                with col3:
+                    if st.button("🏦 Debt Strategy", key="debt_tip"):
+                        st.session_state.user_question = "What's the best strategy for my debt situation?"
+                        st.session_state.auto_process_question = True
+                        st.rerun()
         
-        if st.session_state.chat_history:
-            st.markdown("**Quick Actions:**")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                if st.button("💰 More Savings Tips", key="savings_tip"):
-                    st.session_state.user_question = "Give me more specific tips to increase my savings rate"
-                    st.session_state.auto_process_question = True
-                    st.rerun()
-            with col2:
-                if st.button("📈 Investment Advice", key="investment_tip"):
-                    st.session_state.user_question = "What specific investments should I consider for my situation?"
-                    st.session_state.auto_process_question = True
-                    st.rerun()
-            with col3:
-                if st.button("🏦 Debt Strategy", key="debt_tip"):
-                    st.session_state.user_question = "What's the best strategy for my debt situation?"
-                    st.session_state.auto_process_question = True
-                    st.rerun()
+        # Show context awareness
+        if "FHI" in st.session_state:
+            st.markdown("---")
+            st.markdown("**🎯 FYNyx knows your context:**")
+            context_col1, context_col2, context_col3 = st.columns(3)
+            with context_col1:
+                st.metric("Your FHI", f"{st.session_state['FHI']}")
+            with context_col2:
+                st.metric("Monthly Income", f"₱{st.session_state.get('monthly_income', 0):,.0f}")
+            with context_col3:
+                st.metric("Monthly Savings", f"₱{st.session_state.get('current_savings', 0):,.0f}")
 
-    if "FHI" in st.session_state:
-        st.markdown("---")
-        st.markdown("**🎯 FYNyx knows your context:**")
-        context_col1, context_col2, context_col3 = st.columns(3)
-        with context_col1:
-            st.metric("Your FHI", f"{st.session_state['FHI']}")
-        with context_col2:
-            st.metric("Monthly Income", f"₱{st.session_state.get('monthly_income', 0):,.0f}")
-        with context_col3:
-            st.metric("Monthly Savings", f"₱{st.session_state.get('current_savings', 0):,.0f}")
 # ===============================
 # FOOTER
 # ===============================
