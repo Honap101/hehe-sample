@@ -2,24 +2,7 @@ import streamlit as st
 import plotly.graph_objects as go
 from datetime import datetime
 import json
-
-# AI Integration
-try:
-    import google.generativeai as genai
-    AI_AVAILABLE = True
-    # Configure Gemini API
-    genai.configure(api_key="AIzaSyCdUmzsQLWDxBdxFR8up3NTYhsr9zmYO0w")
-    model = genai.GenerativeModel('gemini-pro')
-except ImportError:
-    AI_AVAILABLE = False
-    st.warning("Google AI not available. Install with: pip install google-generativeai")
-
-# Page config
-st.set_page_config(
-    page_title="Fynstra – Financial Health Index", 
-    layout="centered",
-    initial_sidebar_state="collapsed"
-)
+import google.generativeai as genai
 
 # Initialize session state
 def initialize_session_state():
@@ -31,95 +14,18 @@ def initialize_session_state():
         st.session_state.chat_history = []
 
 def get_ai_response(user_question, fhi_context):
-    """Get response from Gemini AI with rate limit protection"""
     if not AI_AVAILABLE:
+        st.error("🚨 Google AI library not installed!")
         return get_fallback_response(user_question, fhi_context)
     
     try:
-        # Check if we're hitting rate limits (simple cooldown)
-        import time
-        current_time = time.time()
-        
-        # Initialize rate limiting in session state
-        if 'last_ai_call' not in st.session_state:
-            st.session_state.last_ai_call = 0
-        if 'ai_call_count' not in st.session_state:
-            st.session_state.ai_call_count = 0
-        if 'daily_reset' not in st.session_state:
-            st.session_state.daily_reset = current_time
-        
-        # Reset daily counter
-        if current_time - st.session_state.daily_reset > 86400:  # 24 hours
-            st.session_state.ai_call_count = 0
-            st.session_state.daily_reset = current_time
-        
-        # Check daily limit (conservative: 100 per day for safety)
-        if st.session_state.ai_call_count >= 100:
-            st.warning("🤖 FYNyx has reached today's AI quota. Using smart fallback responses.")
-            return get_fallback_response(user_question, fhi_context)
-        
-        # Check rate limit (max 1 request per 4 seconds for safety)
-        if current_time - st.session_state.last_ai_call < 4:
-            remaining_time = 4 - (current_time - st.session_state.last_ai_call)
-            st.info(f"🤖 Please wait {remaining_time:.1f} seconds before next question...")
-            time.sleep(remaining_time)
-        
-        # Create detailed prompt with user context
-        fhi_score = fhi_context.get('FHI', 'Not calculated')
-        income = fhi_context.get('income', 0)
-        expenses = fhi_context.get('expenses', 0)
-        savings = fhi_context.get('savings', 0)
-        
-        prompt = f"""
-        You are FYNyx, an AI financial advisor specifically designed for Filipino users. You provide practical, culturally-aware financial advice.
-
-        IMPORTANT CONTEXT:
-        - User is Filipino, use Philippine financial context
-        - Mention Philippine financial products when relevant (SSS, Pag-IBIG, GSIS, BPI, BDO, etc.)
-        - Use Philippine Peso (₱) in examples
-        - Consider Philippine economic conditions
-        
-        USER'S FINANCIAL PROFILE:
-        - FHI Score: {fhi_score}/100
-        - Monthly Income: ₱{income:,.0f}
-        - Monthly Expenses: ₱{expenses:,.0f}
-        - Monthly Savings: ₱{savings:,.0f}
-        
-        USER'S QUESTION: {user_question}
-        
-        INSTRUCTIONS:
-        - Provide specific, actionable advice
-        - Keep response under 150 words
-        - Use friendly, encouraging tone
-        - Include specific numbers/percentages when helpful
-        - Mention relevant Philippine financial institutions or products if applicable
-        - If FHI score is low (<50), prioritize emergency fund and debt reduction
-        - If FHI score is medium (50-70), focus on investment and optimization
-        - If FHI score is high (>70), discuss advanced strategies
-        
-        Start your response with a brief acknowledgment of their question, then provide clear advice.
-        """
-        
-        # Make the API call
+        st.info("🤖 Sending request to Gemini AI...")  # Debug message
         response = model.generate_content(prompt)
-        
-        # Update rate limiting counters
-        st.session_state.last_ai_call = current_time
-        st.session_state.ai_call_count += 1
-        
+        st.success("✅ Got AI response!")  # Debug message
         return response.text
         
     except Exception as e:
-        error_msg = str(e).lower()
-        
-        # Handle specific API errors
-        if "quota" in error_msg or "limit" in error_msg:
-            st.warning("🤖 FYNyx has reached the free API limit. Using smart fallback responses.")
-        elif "rate" in error_msg:
-            st.info("🤖 FYNyx is being rate limited. Please wait a moment before asking again.")
-        else:
-            st.warning(f"🤖 FYNyx is temporarily unavailable. Using smart fallback responses.")
-        
+        st.error(f"🚨 AI Error: {str(e)}")  # Shows the actual error
         return get_fallback_response(user_question, fhi_context)
 
 def get_fallback_response(user_question, fhi_context):
