@@ -705,4 +705,4 @@ elif page == "FYNyx Chatbot":
 
 st.markdown("---")
 st.markdown("**Fynstra AI** - Empowering Filipinos to **F**orecast, **Y**ield, and **N**avigate their financial future with confidence.")
-st.markdown("*Developed by Team HI-4requency for DataWave 2025*")'
+st.markdown("*Developed by Team HI-4requency for DataWave 2025*")
