@@ -3,12 +3,11 @@ import plotly.graph_objects as go
 from datetime import datetime
 import json
 
-# AI Integration
+# AI Integration - Streamlit secrets only
 try:
     import google.generativeai as genai
     AI_AVAILABLE = True
     
-    # Get API key from Streamlit secrets only
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
         genai.configure(api_key=api_key)
