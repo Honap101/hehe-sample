@@ -372,9 +372,14 @@ if AI_AVAILABLE:
 else:
     st.warning("🤖 FYNyx AI is in basic mode. Install google-generativeai for full AI features.")
 
-# Sidebar navigation
 st.sidebar.title("Navigation")
-page = st.sidebar.selectbox("Choose a feature:", ["Financial Health Calculator", "Goal Tracker", "FYNyx Chatbot"])
+def set_page(page_name):
+    st.session_state.page = page_name
+
+st.sidebar.button("Financial Health Calculator", on_click=set_page, args=("Financial Health Calculator",), use_container_width=True, type="primary" if st.session_state.page == "Financial Health Calculator" else "secondary")
+st.sidebar.button("Goal Tracker", on_click=set_page, args=("Goal Tracker",), use_container_width=True, type="primary" if st.session_state.page == "Goal Tracker" else "secondary")
+st.sidebar.button("FYNyx Chatbot", on_click=set_page, args=("FYNyx Chatbot",), use_container_width=True, type="primary" if st.session_state.page == "FYNyx Chatbot" else "secondary")
+
 
 # ===============================
 # TAB 1: FINANCIAL HEALTH CALCULATOR
