@@ -9,7 +9,7 @@ try:
     AI_AVAILABLE = True
     # Configure Gemini API
     genai.configure(api_key="AIzaSyCdUmzsQLWDxBdxFR8up3NTYhsr9zmYO0w")
-    model = genai.GenerativeModel('gemini-pro')
+    model = genai.GenerativeModel("gemini-2.5-flash")
 except ImportError:
     AI_AVAILABLE = False
     st.warning("Google AI not available. Install with: pip install google-generativeai")
