@@ -3,19 +3,27 @@ import plotly.graph_objects as go
 from datetime import datetime
 import json
 
-# Add this right after your imports (temporary debug)
-st.write("🔍 **Debug Info:**")
+# AI Integration
 try:
-    test_key = st.secrets["GEMINI_API_KEY"]
-    st.success(f"✅ Secret found! Key ends with: ...{test_key[-4:]}")
-except KeyError:
-    st.error("❌ GEMINI_API_KEY not found in secrets")
-    st.write("Available secrets keys:", list(st.secrets.keys()) if hasattr(st, 'secrets') else "No secrets object")
-except Exception as e:
-    st.error(f"❌ Error accessing secrets: {e}")
-
-st.write("---")
-# Rest of your app code...
+    import google.generativeai as genai
+    AI_AVAILABLE = True
+    
+    # Get API key from Streamlit secrets only
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.5-flash")
+    except KeyError:
+        st.error("⚠️ GEMINI_API_KEY not found in Streamlit secrets")
+        st.info("💡 Add your API key in the Secrets section of your Streamlit Cloud app")
+        AI_AVAILABLE = False
+    except Exception as e:
+        st.error(f"AI configuration error: {str(e)}")
+        AI_AVAILABLE = False
+        
+except ImportError:
+    AI_AVAILABLE = False
+    st.warning("Google AI not available. Install with: pip install google-generativeai")
 
 # Initialize session state
 def initialize_session_state():
