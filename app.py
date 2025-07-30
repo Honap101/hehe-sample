@@ -8,7 +8,7 @@ try:
     import google.generativeai as genai
     AI_AVAILABLE = True
     # Configure Gemini API
-    genai.configure(api_key="AIzaSyCdUmzsQLWDxBdxFR8up3NTYhsr9zmYO0w")
+    genai.configure(api_key="secret")
     model = genai.GenerativeModel("gemini-2.5-flash")
 except ImportError:
     AI_AVAILABLE = False
