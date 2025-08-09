@@ -478,7 +478,6 @@ tab_calc, tab_goals = st.tabs(["Financial Health Calculator", "Goal Tracker"])
 # TAB 1: FINANCIAL HEALTH CALCULATOR
 # ===============================
 with tab_calc:
-    if page == "Financial Health Calculator":
         with st.container(border=True):
             st.subheader("Calculate your FHI Score")
             st.markdown("Enter your financial details to get your personalized Financial Health Index score and recommendations.")
@@ -619,7 +618,6 @@ with tab_calc:
 # TAB 2: GOAL TRACKER
 # ===============================
 with tab_goals:
-    elif page == "Goal Tracker":
         st.subheader("🎯 Goal Tracker")
     
         if "FHI" not in st.session_state:
