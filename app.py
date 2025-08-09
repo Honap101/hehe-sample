@@ -310,7 +310,6 @@ class FHICalculator:
         
         return errors, warnings
                            
-    @st.cache_data(ttl=3600)
     @staticmethod
     def calculate(age: int, monthly_income: float, monthly_expenses: float, 
                  monthly_savings: float, monthly_debt: float, total_investments: float, 
@@ -371,6 +370,7 @@ class FHICalculator:
                15)
         
         return round(fhi, 2), components
+    calculate = st.cache_data(ttl=3600)(calculate)  # apply AFTER definition
 
 # ===============================
 # AI ASSISTANT CLASS
