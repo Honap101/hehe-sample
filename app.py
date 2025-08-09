@@ -1400,172 +1400,142 @@ def render_current_page(app: "FynstraApp"):
     else:
         app.render_dashboard()
 # ===============================
-# FLOATING FYNYX CHAT (lower-right widget)
+# FLOATING FYNYX CHAT (lower-right, Streamlit-widgets only)
 # ===============================
 def render_floating_chat(app: "FynstraApp"):
     # --- session state ---
-    if "fyn_chat_open" not in st.session_state:
-        st.session_state.fyn_chat_open = False
-    if "fyn_chat_messages" not in st.session_state:
-        st.session_state.fyn_chat_messages = []  # [{"role":"user"|"assistant","content": "..."}]
-    if "fyn_unread" not in st.session_state:
-        st.session_state.fyn_unread = 0
+    ss = st.session_state
+    ss.setdefault("fyn_chat_open", False)
+    ss.setdefault("fyn_chat_messages", [])  # list[{"role": "user"|"assistant", "content": str, "ts": str}]
+    ss.setdefault("fyn_unread", 0)
 
-    # --- helpers ---
     def ask_fyn(user_text: str) -> str:
         context = {
-            "FHI": st.session_state.get("FHI", 0),
-            "income": st.session_state.get("monthly_income", 0),
-            "expenses": st.session_state.get("monthly_expenses", 0),
-            "savings": st.session_state.get("current_savings", 0),
+            "FHI": ss.get("FHI", 0),
+            "income": ss.get("monthly_income", 0),
+            "expenses": ss.get("monthly_expenses", 0),
+            "savings": ss.get("current_savings", 0),
         }
         try:
-            reply, _from_cache = app.ai_assistant.get_response(user_text, context)
+            reply, _ = app.ai_assistant.get_response(user_text, context)
             return reply
         except Exception as e:
             st.error(f"AI error: {e}")
-            # fall back to the internal fallback method
             return app.ai_assistant._get_fallback_response(user_text, context)
 
-    # --- fixed container root (we pin this with CSS) ---
+    # Root fixed container anchored bottom-right
     root = st.container()
     with root:
         st.markdown('<div class="fyn-chat-anchor"></div>', unsafe_allow_html=True)
 
-        # styles (uses :has which modern browsers support)
-        open_w = 380
-        open_h = 520
+        # Fixed panel styles (no :has selector, wide compatibility)
+        open_w, open_h = 380, 520
         st.markdown(f"""
         <style>
-          /* Make THIS Streamlit block fixed at bottom-right */
-          div:has(> .fyn-chat-anchor) {{
-            position: fixed;
-            bottom: 16px;
-            right: 16px;
-            width: {open_w if st.session_state.fyn_chat_open else 56}px;
-            height: {open_h if st.session_state.fyn_chat_open else 56}px;
-            z-index: 1000;
-            border-radius: {16 if st.session_state.fyn_chat_open else 28}px;
-            background: {"#ffffff" if st.session_state.fyn_chat_open else "linear-gradient(135deg,#667eea,#764ba2)"};
-            box-shadow: 0 12px 32px rgba(0,0,0,.18);
-            overflow: hidden;
-            transition: all .22s ease-in-out;
-            border: {"1px solid #e2e8f0" if st.session_state.fyn_chat_open else "none"};
+          /* Pin the parent block that contains .fyn-chat-anchor */
+          div.block-container div:has(> .fyn-chat-anchor) {{
+            position: fixed; right: 16px; bottom: 16px;
+            width: {open_w if ss.fyn_chat_open else 64}px;
+            height: {open_h if ss.fyn_chat_open else 64}px;
+            z-index: 1000; border-radius: 16px;
+            box-shadow: 0 12px 30px rgba(0,0,0,.18);
+            overflow: hidden; transition: all .2s ease-in-out;
+            background: {"#ffffff" if ss.fyn_chat_open else "linear-gradient(135deg,#667eea,#764ba2)"};
+            border: {"1px solid #e2e8f0" if ss.fyn_chat_open else "none"};
           }}
-
-          .fyn-fab {{
-            display: { "flex" if not st.session_state.fyn_chat_open else "none" };
-            width: 56px; height: 56px; align-items: center; justify-content: center;
-            color: #fff; font-size: 22px; font-weight: 800; cursor: pointer; user-select: none;
+          .fyn-mini {{
+            display: { "flex" if not ss.fyn_chat_open else "none" };
+            height: 100%; width: 100%; align-items: center; justify-content: center; gap: 6px;
           }}
-          .fyn-fab-badge {{
-            position: absolute; top: -4px; right: -4px;
-            min-width: 18px; height: 18px; padding: 0 4px;
-            background: #ef4444; color: #fff; border-radius: 9px; font-size: 11px;
-            line-height: 18px; text-align: center;
+          .fyn-unread {{
+            position: absolute; top: 4px; right: 4px;
+            min-width: 18px; height: 18px; padding: 0 5px;
+            background:#ef4444; color:#fff; border-radius: 9px; font-size: 11px; line-height: 18px;
           }}
-
-          .fyn-head {{
-            display: { "flex" if st.session_state.fyn_chat_open else "none" };
-            align-items: center; justify-content: space-between;
-            background: linear-gradient(135deg,#667eea,#764ba2);
-            color: #fff; padding: 10px 14px; font-weight: 700;
-          }}
-          .fyn-body {{
-            display: { "block" if st.session_state.fyn_chat_open else "none" };
-            height: {open_h - 120}px; overflow-y: auto; background: #fafbff;
-            padding: 10px 12px 0 12px;
-          }}
-          .fyn-foot {{
-            display: { "block" if st.session_state.fyn_chat_open else "none" };
-            padding: 8px 12px 12px 12px; background: #fff; border-top: 1px solid #eef2f7;
-          }}
-
-          .fyn-bot {{
-            background: #fff; color:#222; border:1px solid #edf0f7;
-            border-radius: 12px 12px 12px 2px; padding: 8px 10px; margin: 8px 40px 8px 0;
-          }}
-          .fyn-user {{
-            background: #e9ecff; color:#1c2a6b;
-            border-radius: 12px 12px 2px 12px; padding: 8px 10px; margin: 8px 0 8px 40px;
-          }}
-          .fyn-quick {{
-            display:inline-block; margin:6px 6px 0 0; padding:6px 10px; font-size:12px;
-            background:#f1f4ff; border:1px solid #dfe6ff; border-radius:999px; cursor:pointer;
-          }}
+          .fyn-head {{ display:flex; align-items:center; justify-content:space-between;
+            background: linear-gradient(135deg,#667eea,#764ba2); color:#fff; padding:10px 12px; }}
+          .fyn-body {{ height: {open_h - 124}px; overflow-y:auto; background:#fafbff; padding:10px 12px 0 12px; }}
+          .fyn-foot {{ padding:8px 12px 12px 12px; background:#fff; border-top:1px solid #eef2f7; }}
+          .fyn-bot {{ background:#fff; border:1px solid #edf0f7; border-radius:12px 12px 12px 2px; padding:8px 10px; margin:8px 40px 8px 0; }}
+          .fyn-user {{ background:#e9ecff; color:#1c2a6b; border-radius:12px 12px 2px 12px; padding:8px 10px; margin:8px 0 8px 40px; }}
+          .fyn-quick {{ display:inline-block; margin:6px 6px 0 0; padding:6px 10px; font-size:12px;
+                        background:#f1f4ff; border:1px solid #dfe6ff; border-radius:999px; }}
+          /* Make the tiny open/close buttons look like icons */
+          .stButton>button.small {{"{"
+        }}padding:6px 10px; border-radius:10px; font-size:14px;{{"}"}}
         </style>
         """, unsafe_allow_html=True)
 
-        # CLOSED (floating button)
-        if not st.session_state.fyn_chat_open:
-            st.markdown(
-                f"""
-                <div class="fyn-fab">⌧</div>
-                {f"<div class='fyn-fab-badge'>{st.session_state.fyn_unread}</div>" if st.session_state.fyn_unread else ""}
-                """,
-                unsafe_allow_html=True
-            )
-            if st.button("Open FYNyx", key="fyn_open_btn", help="Open chat"):
-                st.session_state.fyn_chat_open = True
-                st.session_state.fyn_unread = 0
-                st.rerun()
-            return  # nothing more to render when closed
-
-        # OPEN (panel UI)
-        st.markdown("""
-        <div class="fyn-head">
-          <span>FYNyx • Financial Assistant</span>
-          <span>🇵🇭</span>
-        </div>
-        """, unsafe_allow_html=True)
-
-        # Messages
-        with st.container():
-            st.markdown('<div class="fyn-body">', unsafe_allow_html=True)
-
-            # Starter hint when empty
-            if not st.session_state.fyn_chat_messages:
-                st.markdown("<div class='fyn-bot'>Hi! Ask me about savings, debt, investments, or your FHI. 😊</div>", unsafe_allow_html=True)
-                # quick suggestions
+        # -------- CLOSED (mini FAB with real Streamlit button) --------
+        if not ss.fyn_chat_open:
+            col = st.columns([1])[0]
+            with col:
+                st.markdown('<div class="fyn-mini">', unsafe_allow_html=True)
+                # Real Streamlit button that toggles open state
+                if st.button("⌧", key="fyn_open_btn", help="Open FYNyx", use_container_width=True):
+                    ss.fyn_chat_open = True
+                    ss.fyn_unread = 0
+                    st.rerun()
                 st.markdown(
-                    "<div>"
-                    "<span class='fyn-quick'>How do I build my emergency fund?</span>"
-                    "<span class='fyn-quick'>Am I saving enough each month?</span>"
-                    "<span class='fyn-quick'>What investments are good for beginners?</span>"
-                    "</div>",
+                    f"{f'<div class=\"fyn-unread\">{ss.fyn_unread}</div>' if ss.fyn_unread else ''}",
                     unsafe_allow_html=True
                 )
+                st.markdown('</div>', unsafe_allow_html=True)
+            return
 
-            for m in st.session_state.fyn_chat_messages[-60:]:
+        # -------- OPEN (chat panel) --------
+        # Header with Close + Clear
+        c1, c2, c3 = st.columns([6, 1, 1])
+        with c1:
+            st.markdown('<div class="fyn-head"><b>FYNyx • Financial Assistant</b><span>🇵🇭</span></div>', unsafe_allow_html=True)
+        with c2:
+            if st.button("✖", key="fyn_close", help="Close", use_container_width=True):
+                ss.fyn_chat_open = False
+                st.rerun()
+        with c3:
+            if st.button("🧹", key="fyn_clear", help="Clear conversation", use_container_width=True):
+                ss.fyn_chat_messages = []
+                st.rerun()
+
+        # Messages
+        st.markdown('<div class="fyn-body">', unsafe_allow_html=True)
+        if not ss.fyn_chat_messages:
+            st.markdown("<div class='fyn-bot'>Hi! Ask me about savings, debt, investments, or your FHI. 😊</div>", unsafe_allow_html=True)
+            st.markdown(
+                "<div>"
+                "<span class='fyn-quick'>How do I build my emergency fund?</span>"
+                "<span class='fyn-quick'>Am I saving enough each month?</span>"
+                "<span class='fyn-quick'>What investments are good for beginners?</span>"
+                "</div>",
+                unsafe_allow_html=True
+            )
+        else:
+            for m in ss.fyn_chat_messages[-80:]:
                 klass = "fyn-user" if m["role"] == "user" else "fyn-bot"
-                st.markdown(f"<div class='{klass}'>{m['content']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='{klass}'><div style='font-size:12px;opacity:.55'>{m['ts']}</div>{m['content']}</div>",
+                            unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        # Input area
+        # Input + Send row
         st.markdown('<div class="fyn-foot">', unsafe_allow_html=True)
         with st.form("fyn_chat_form", clear_on_submit=True):
-            c1, c2, c3 = st.columns([1, 6, 1])
-            with c1:
-                close = st.form_submit_button("✖", use_container_width=True)
-            with c2:
-                text = st.text_input("Type your message", label_visibility="collapsed",
-                                     placeholder="Ask about savings, debt, or investing…")
-            with c3:
+            i1, i2 = st.columns([6, 1])
+            with i1:
+                txt = st.text_input("Type your message",
+                                    key="fyn_text_input",
+                                    label_visibility="collapsed",
+                                    placeholder="Ask about savings, debt, or investing…")
+            with i2:
                 send = st.form_submit_button("➤", use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        if close:
-            st.session_state.fyn_chat_open = False
-            st.rerun()
-
-        # Handle “quick chips” clicks by reusing the form’s send button
-        # (cheap trick: if user typed nothing but pressed send, ignore)
-        if send and text.strip():
-            user_text = text.strip()
-            st.session_state.fyn_chat_messages.append({"role": "user", "content": user_text})
+        if send and txt.strip():
+            user_text = txt.strip()
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+            ss.fyn_chat_messages.append({"role": "user", "content": user_text, "ts": ts})
             reply = ask_fyn(user_text)
-            st.session_state.fyn_chat_messages.append({"role": "assistant", "content": reply})
+            ts2 = datetime.now().strftime("%Y-%m-%d %H:%M")
+            ss.fyn_chat_messages.append({"role": "assistant", "content": reply, "ts": ts2})
             st.rerun()
 
 if __name__ == "__main__":
