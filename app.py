@@ -309,9 +309,9 @@ class FHICalculator:
                 warnings.append(f"⚠️ You're spending {expense_ratio:.1%} of income on expenses - consider budgeting")
         
         return errors, warnings
-    
-    @staticmethod
+                           
     @st.cache_data(ttl=3600)
+    @staticmethod
     def calculate(age: int, monthly_income: float, monthly_expenses: float, 
                  monthly_savings: float, monthly_debt: float, total_investments: float, 
                  net_worth: float, emergency_fund: float) -> Tuple[float, Dict[str, float]]:
@@ -428,7 +428,8 @@ class AIAssistant:
         cache_key = self.get_cache_key(question, context)
         if cache_key in self.request_cache:
             cached_response, cache_time = self.request_cache[cache_key]
-            if (datetime.now() - cache_time).hours < Config.CACHE_EXPIRY_HOURS:
+            age_secs = (datetime.now() - cache_time).total_seconds()
+            if age_secs < Config.CACHE_EXPIRY_HOURS * 3600:
                 return cached_response, True
         
         # Check rate limit
@@ -1378,3 +1379,21 @@ class FynstraApp:
         # Chat interface
         with st.container():
             st.markdown("### 💭 Ask FYNyx Anything About Finance")
+# ===== ENTRYPOINT =====
+def render_current_page(app: "FynstraApp"):
+    app.render_sidebar()
+    page = st.session_state.get("current_page", "dashboard")
+    if page == "dashboard":
+        app.render_dashboard()
+    elif page == "calculator":
+        app.render_calculator()
+    elif page == "goals":
+        app.render_goals()
+    elif page == "chat":
+        app.render_chat()
+    else:
+        app.render_dashboard()
+
+if __name__ == "__main__":
+    app = FynstraApp()
+    render_current_page(app)
