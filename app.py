@@ -273,49 +273,54 @@ class UIComponents:
 # ===============================
 class FHICalculator:
     """Financial Health Index calculation engine"""
-    
+
     @staticmethod
     def validate_inputs(income: float, expenses: float, debt: float, savings: float, 
-                       age: int) -> Tuple[List[str], List[str]]:
+                        age: int) -> Tuple[List[str], List[str]]:
         """Enhanced input validation with comprehensive checks"""
-        errors = []
-        warnings = []
-        
+        errors: List[str] = []
+        warnings: List[str] = []
+
         # Critical errors
         if income <= 0:
             errors.append("❌ Income must be greater than zero")
-        
+
         if age < 18 or age > 100:
             errors.append("❌ Please enter a valid age between 18 and 100")
-        
+
         # Logical validations
         if debt > income:
             errors.append("❌ Monthly debt payments exceed income - this is unsustainable")
-        
+
         if expenses > income:
             warnings.append("⚠️ Expenses exceed income - you're running a deficit")
-        
+
         if (expenses + debt + savings) > income * 1.1:
             warnings.append("⚠️ Total obligations exceed income - please verify your numbers")
-        
+
         # Ratio checks
         if income > 0:
             debt_ratio = debt / income
             if debt_ratio > Config.MAX_DEBT_TO_INCOME:
-                warnings.append(f"⚠️ Debt-to-income ratio ({debt_ratio:.1%}) is above recommended {Config.MAX_DEBT_TO_INCOME:.0%}")
-            
+                warnings.append(
+                    f"⚠️ Debt-to-income ratio ({debt_ratio:.1%}) is above recommended {Config.MAX_DEBT_TO_INCOME:.0%}"
+                )
+
             expense_ratio = expenses / income
             if expense_ratio > 0.8:
-                warnings.append(f"⚠️ You're spending {expense_ratio:.1%} of income on expenses - consider budgeting")
-        
+                warnings.append(
+                    f"⚠️ You're spending {expense_ratio:.1%} of income on expenses - consider budgeting"
+                )
+
         return errors, warnings
-                           
+
     @staticmethod
+    @st.cache_data(ttl=3600)
     def calculate(age: int, monthly_income: float, monthly_expenses: float, 
-                 monthly_savings: float, monthly_debt: float, total_investments: float, 
-                 net_worth: float, emergency_fund: float) -> Tuple[float, Dict[str, float]]:
-        """Calculate FHI with caching for performance"""
-        
+                  monthly_savings: float, monthly_debt: float, total_investments: float, 
+                  net_worth: float, emergency_fund: float) -> Tuple[float, Dict[str, float]]:
+        """Calculate FHI (cached)"""
+
         # Age-based multipliers
         if age < 30:
             alpha, beta = 2.5, 2.0
@@ -325,52 +330,53 @@ class FHICalculator:
             alpha, beta = 3.5, 4.0
         else:
             alpha, beta = 4.0, 5.0
-        
+
         annual_income = monthly_income * 12
-        
+
         # Component calculations with safety checks
-        components = {}
-        
+        components: Dict[str, float] = {}
+
         # Net Worth Score
         if annual_income > 0:
             components["Net Worth"] = min(max((net_worth / (annual_income * alpha)) * 100, 0), 100)
         else:
             components["Net Worth"] = 0
-        
+
         # Debt-to-Income Score
         if monthly_income > 0:
             components["Debt-to-Income"] = 100 - min((monthly_debt / monthly_income) * 100, 100)
         else:
             components["Debt-to-Income"] = 100 if monthly_debt == 0 else 0
-        
+
         # Savings Rate Score
         if monthly_income > 0:
             components["Savings Rate"] = min((monthly_savings / monthly_income) * 100, 100)
         else:
             components["Savings Rate"] = 0
-        
+
         # Investment Score
         if annual_income > 0:
             components["Investment"] = min(max((total_investments / (beta * annual_income)) * 100, 0), 100)
         else:
             components["Investment"] = 0
-        
+
         # Emergency Fund Score
         if monthly_expenses > 0:
             components["Emergency Fund"] = min((emergency_fund / monthly_expenses) / 6 * 100, 100)
         else:
             components["Emergency Fund"] = 100 if emergency_fund > 0 else 0
-        
+
         # Weighted FHI calculation
-        fhi = (0.20 * components["Net Worth"] + 
-               0.15 * components["Debt-to-Income"] + 
-               0.15 * components["Savings Rate"] + 
-               0.15 * components["Investment"] + 
-               0.20 * components["Emergency Fund"] + 
-               15)
-        
+        fhi = (
+            0.20 * components["Net Worth"] +
+            0.15 * components["Debt-to-Income"] +
+            0.15 * components["Savings Rate"] +
+            0.15 * components["Investment"] +
+            0.20 * components["Emergency Fund"] +
+            15
+        )
+
         return round(fhi, 2), components
-    calculate = st.cache_data(ttl=3600)(calculate)  # apply AFTER definition
 
 # ===============================
 # AI ASSISTANT CLASS
