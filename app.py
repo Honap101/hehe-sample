@@ -1377,4 +1377,4 @@ class FynstraApp:
         
         # Chat interface
         with st.container():
-            st.markdown("### 💭 Ask FYNyx
+            st.markdown("### 💭 Ask FYNyx Anything About Finance")
