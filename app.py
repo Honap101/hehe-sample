@@ -12,8 +12,7 @@ def initialize_ai():
     try:
         import google.generativeai as genai
         AI_AVAILABLE = True
-        
-        # Get API key from Streamlit secrets only
+
         try:
             api_key = st.secrets["GEMINI_API_KEY"]
             genai.configure(api_key=api_key)
@@ -26,7 +25,7 @@ def initialize_ai():
         except Exception as e:
             st.error(f"AI configuration error: {str(e)}")
             return False, None
-            
+
     except ImportError:
         st.warning("Google AI not available. Install with: pip install google-generativeai")
         return False, None
@@ -34,12 +33,11 @@ def initialize_ai():
 def get_ai_response(user_question, fhi_context, model):
     """Get response from Gemini AI"""
     try:
-        # Create detailed prompt with user context
         fhi_score = fhi_context.get('FHI', 'Not calculated')
         income = fhi_context.get('income', 0)
         expenses = fhi_context.get('expenses', 0)
         savings = fhi_context.get('savings', 0)
-        
+
         prompt = f"""
         You are FYNyx, an AI financial advisor specifically designed for Filipino users. You provide practical, culturally-aware financial advice.
 
@@ -49,15 +47,15 @@ def get_ai_response(user_question, fhi_context, model):
         - Use Philippine Peso (₱) in examples
         - Consider Philippine economic conditions
         - If the question is not financial, politely redirect to financial topics
-        
+
         USER'S FINANCIAL PROFILE:
         - FHI Score: {fhi_score}/100
         - Monthly Income: ₱{income:,.0f}
         - Monthly Expenses: ₱{expenses:,.0f}
         - Monthly Savings: ₱{savings:,.0f}
-        
+
         USER'S QUESTION: {user_question}
-        
+
         INSTRUCTIONS:
         - Provide specific, actionable advice
         - Keep response under 150 words
@@ -67,13 +65,13 @@ def get_ai_response(user_question, fhi_context, model):
         - If FHI score is low (<50), prioritize emergency fund and debt reduction
         - If FHI score is medium (50-70), focus on investment and optimization
         - If FHI score is high (>70), discuss advanced strategies
-        
+
         Start your response with a brief acknowledgment of their question, then provide clear advice.
         """
-        
+
         response = model.generate_content(prompt)
         return response.text
-        
+
     except Exception as e:
         st.error(f"AI temporarily unavailable: {str(e)}")
         return get_fallback_response(user_question, fhi_context)
@@ -84,28 +82,27 @@ def get_fallback_response(user_question, fhi_context):
     fhi_score = fhi_context.get('FHI', 0)
     income = fhi_context.get('income', 0)
     expenses = fhi_context.get('expenses', 0)
-    
-    # Handle non-financial questions
+
     if not any(keyword in question_lower for keyword in ['money', 'save', 'invest', 'debt', 'financial', 'emergency', 'retirement', 'income', 'expense', 'fund', 'bank', 'loan']):
         return "I'm FYNyx, your financial advisor! While I can't help with non-financial questions, I'm here to assist with your financial health. Would you like to discuss savings strategies, investments, or debt management instead?"
-    
+
     if "emergency" in question_lower:
         target_emergency = expenses * 6
         monthly_target = target_emergency / 12
         return f"Build an emergency fund of ₱{target_emergency:,.0f} (6 months of expenses). Save ₱{monthly_target:,.0f} monthly to reach this in a year. Keep it in a high-yield savings account like BPI or BDO."
-    
+
     elif "debt" in question_lower:
         if fhi_score < 50:
             return "Focus on high-interest debt first (credit cards, personal loans). Pay minimums on everything, then put extra money toward the highest interest rate debt. Consider debt consolidation with lower rates."
         else:
             return "You're managing debt well! Continue current payments and avoid taking on new high-interest debt. Consider investing surplus funds."
-    
+
     elif "invest" in question_lower or "investment" in question_lower:
         if income < 30000:
             return "Start small with ₱1,000/month in index funds like FMETF or mutual funds from BPI/BDO. Focus on emergency fund first, then gradually increase investments."
         else:
             return "Consider diversifying: 60% stocks (FMETF, blue chips like SM, Ayala), 30% bonds (government treasury), 10% alternative investments. Start with ₱5,000-10,000 monthly."
-    
+
     elif "save" in question_lower or "savings" in question_lower:
         savings_rate = (fhi_context.get('savings', 0) / income * 100) if income > 0 else 0
         target_rate = 20
@@ -114,10 +111,10 @@ def get_fallback_response(user_question, fhi_context):
             return f"Your savings rate is {savings_rate:.1f}%. Aim for 20% (₱{target_rate/100 * income:,.0f}/month). Increase by ₱{needed_increase:,.0f} monthly through expense reduction or income increase."
         else:
             return f"Excellent {savings_rate:.1f}% savings rate! Consider automating transfers and exploring higher-yield options like time deposits or money market funds."
-    
+
     elif "retirement" in question_lower:
         return "Maximize SSS contributions first, then add private retirement accounts. Aim to save 10-15% of income for retirement. Consider PERA (Personal Equity Retirement Account) for tax benefits."
-    
+
     else:
         if fhi_score < 50:
             return "Focus on basics: emergency fund (3-6 months expenses), pay down high-interest debt, and track your spending. Build a solid foundation before investing."
@@ -127,30 +124,26 @@ def get_fallback_response(user_question, fhi_context):
             return "Great financial health! Consider advanced strategies: real estate investment, business opportunities, or international diversification. Consult a certified financial planner."
 
 # ===============================
-# CALCULATION & VALIDATION FUNCTIONS  
+# CALCULATION & VALIDATION FUNCTIONS
 # ===============================
 
 def validate_financial_inputs(income, expenses, debt, savings):
-    """Validate user financial inputs"""
     errors = []
     warnings = []
-    
+
     if debt > income:
         errors.append("⚠️ Your monthly debt payments exceed your income")
-    
+
     if expenses > income:
         warnings.append("⚠️ Your monthly expenses exceed your income")
-    
-    if savings + expenses + debt > income * 1.1:  # Allow 10% buffer
+
+    if savings + expenses + debt > income * 1.1:
         warnings.append("⚠️ Your total monthly obligations seem high relative to income")
-    
+
     return errors, warnings
 
-def calculate_fhi(age, monthly_income, monthly_expenses, monthly_savings, monthly_debt, 
+def calculate_fhi(age, monthly_income, monthly_expenses, monthly_savings, monthly_debt,
                   total_investments, net_worth, emergency_fund):
-    """Calculate Financial Health Index and component scores"""
-    
-    # Age-based target multipliers
     if age < 30:
         alpha, beta = 2.5, 2.0
     elif age < 40:
@@ -162,16 +155,14 @@ def calculate_fhi(age, monthly_income, monthly_expenses, monthly_savings, monthl
 
     annual_income = monthly_income * 12
 
-    # Sub-scores
     Nworth = min(max((net_worth / (annual_income * alpha)) * 100, 0), 100) if annual_income > 0 else 0
     DTI = 100 - min((monthly_debt / monthly_income) * 100, 100) if monthly_income > 0 else 0
     Srate = min((monthly_savings / monthly_income) * 100, 100) if monthly_income > 0 else 0
     Invest = min(max((total_investments / (beta * annual_income)) * 100, 0), 100) if annual_income > 0 else 0
     Emerg = min((emergency_fund / monthly_expenses) / 6 * 100, 100) if monthly_expenses > 0 else 0
 
-    # Final FHI Score
     FHI = 0.20 * Nworth + 0.15 * DTI + 0.15 * Srate + 0.15 * Invest + 0.20 * Emerg + 15
-    
+
     components = {
         "Net Worth": Nworth,
         "Debt-to-Income": DTI,
@@ -179,7 +170,7 @@ def calculate_fhi(age, monthly_income, monthly_expenses, monthly_savings, monthl
         "Investment": Invest,
         "Emergency Fund": Emerg,
     }
-    
+
     return FHI, components
 
 # ===============================
@@ -187,7 +178,6 @@ def calculate_fhi(age, monthly_income, monthly_expenses, monthly_savings, monthl
 # ===============================
 
 def create_gauge_chart(fhi_score):
-    """Create FHI gauge chart"""
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=fhi_score,
@@ -200,49 +190,22 @@ def create_gauge_chart(fhi_score):
                 {'range': [50, 70], 'color': "gold"},
                 {'range': [70, 100], 'color': "lightgreen"}
             ],
-            'threshold': {
-                'line': {'color': "red", 'width': 4},
-                'thickness': 0.75,
-                'value': 90
-            }
+            'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.75, 'value': 90}
         }
     ))
     fig.update_layout(height=300, margin=dict(t=20, b=20))
     return fig
 
 def create_component_radar_chart(components):
-    """Create radar chart for component breakdown"""
     categories = list(components.keys())
     values = list(components.values())
-    
+
     fig = go.Figure()
-    
-    fig.add_trace(go.Scatterpolar(
-        r=values,
-        theta=categories,
-        fill='toself',
-        name='Your Scores',
-        line_color='blue'
-    ))
-    
-    fig.add_trace(go.Scatterpolar(
-        r=[70] * len(categories),  # Target scores
-        theta=categories,
-        fill='toself',
-        name='Target (70%)',
-        line_color='green',
-        opacity=0.3
-    ))
-    
-    fig.update_layout(
-        polar=dict(
-            radialaxis=dict(visible=True, range=[0, 100])
-        ),
-        showlegend=True,
-        height=400,
-        title="Financial Health Component Breakdown"
-    )
-    
+    fig.add_trace(go.Scatterpolar(r=values, theta=categories, fill='toself', name='Your Scores', line_color='blue'))
+    fig.add_trace(go.Scatterpolar(r=[70] * len(categories), theta=categories, fill='toself',
+                                  name='Target (70%)', line_color='green', opacity=0.3))
+    fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+                      showlegend=True, height=400, title="Financial Health Component Breakdown")
     return fig
 
 # ===============================
@@ -250,67 +213,44 @@ def create_component_radar_chart(components):
 # ===============================
 
 def interpret_component(label, score):
-    """Provide interpretation and suggestions for each component"""
     if label == "Net Worth":
-        interpretation = (
-            "Your **net worth is low** relative to your income." if score < 40 else
-            "Your **net worth is progressing**, but still has room to grow." if score < 70 else
-            "You have a **strong net worth** relative to your income."
-        )
-        suggestions = [
-            "Build your assets by saving and investing consistently.",
-            "Reduce liabilities such as debts and loans.",
-            "Track your net worth regularly to monitor growth."
-        ]
+        interpretation = ("Your **net worth is low** relative to your income." if score < 40 else
+                          "Your **net worth is progressing**, but still has room to grow." if score < 70 else
+                          "You have a **strong net worth** relative to your income.")
+        suggestions = ["Build your assets by saving and investing consistently.",
+                       "Reduce liabilities such as debts and loans.",
+                       "Track your net worth regularly to monitor growth."]
     elif label == "Debt-to-Income":
-        interpretation = (
-            "Your **debt is taking a big chunk of your income**." if score < 40 else
-            "You're **managing debt moderately well**, but aim to lower it further." if score < 70 else
-            "Your **debt load is well-managed**."
-        )
-        suggestions = [
-            "Pay down high-interest debts first.",
-            "Avoid taking on new unnecessary credit obligations.",
-            "Increase income to improve your ratio."
-        ]
+        interpretation = ("Your **debt is taking a big chunk of your income**." if score < 40 else
+                          "You're **managing debt moderately well**, but aim to lower it further." if score < 70 else
+                          "Your **debt load is well-managed**.")
+        suggestions = ["Pay down high-interest debts first.",
+                       "Avoid taking on new unnecessary credit obligations.",
+                       "Increase income to improve your ratio."]
     elif label == "Savings Rate":
-        interpretation = (
-            "You're **saving very little** monthly." if score < 40 else
-            "Your **savings rate is okay**, but can be improved." if score < 70 else
-            "You're **saving consistently and strongly**."
-        )
-        suggestions = [
-            "Automate savings transfers if possible.",
-            "Set a target of saving at least 20% of income.",
-            "Review expenses to increase what's saved."
-        ]
+        interpretation = ("You're **saving very little** monthly." if score < 40 else
+                          "Your **savings rate is okay**, but can be improved." if score < 70 else
+                          "You're **saving consistently and strongly**.")
+        suggestions = ["Automate savings transfers if possible.",
+                       "Set a target of saving at least 20% of income.",
+                       "Review expenses to increase what's saved."]
     elif label == "Investment":
-        interpretation = (
-            "You're **not investing much yet**." if score < 40 else
-            "You're **starting to invest**; try to boost it." if score < 70 else
-            "You're **investing well** and building wealth."
-        )
-        suggestions = [
-            "Start small and invest regularly.",
-            "Diversify your portfolio for stability.",
-            "Aim for long-term investing over short-term speculation."
-        ]
+        interpretation = ("You're **not investing much yet**." if score < 40 else
+                          "You're **starting to invest**; try to boost it." if score < 70 else
+                          "You're **investing well** and building wealth.")
+        suggestions = ["Start small and invest regularly.",
+                       "Diversify your portfolio for stability.",
+                       "Aim for long-term investing over short-term speculation."]
     elif label == "Emergency Fund":
-        interpretation = (
-            "You have **less than 1 month saved** for emergencies." if score < 40 else
-            "You're **halfway to a full emergency buffer**." if score < 70 else
-            "✅ Your **emergency fund is solid**."
-        )
-        suggestions = [
-            "Build up to 3–6 months of essential expenses.",
-            "Keep it liquid and easily accessible.",
-            "Set a monthly auto-save amount."
-        ]
-    
+        interpretation = ("You have **less than 1 month saved** for emergencies." if score < 40 else
+                          "You're **halfway to a full emergency buffer**." if score < 70 else
+                          "✅ Your **emergency fund is solid**.")
+        suggestions = ["Build up to 3–6 months of essential expenses.",
+                       "Keep it liquid and easily accessible.",
+                       "Set a monthly auto-save amount."]
     return interpretation, suggestions
 
 def generate_text_report(fhi_score, components, user_inputs):
-    """Generate downloadable text report"""
     report_text = f"""
 FYNSTRA FINANCIAL HEALTH REPORT
 Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
@@ -344,48 +284,208 @@ Generated by Fynstra AI - Your Personal Financial Health Platform
 # ===============================
 
 def initialize_session_state():
-    """Initialize session state variables"""
     if "user_data" not in st.session_state:
         st.session_state.user_data = {}
     if "calculation_history" not in st.session_state:
         st.session_state.calculation_history = []
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
+    if "chat_open" not in st.session_state:
+        st.session_state.chat_open = False
+    if "user_question" not in st.session_state:
+        st.session_state.user_question = ""
+    if "auto_process_question" not in st.session_state:
+        st.session_state.auto_process_question = False
+
+# ===============================
+# HELPER: FLOATING CHAT WIDGET
+# ===============================
+
+def render_floating_chat(ai_available, model):
+    """
+    Renders a bottom-right floating chat widget:
+    - A FAB (floating action button) to open/close
+    - A compact chat panel with history and input
+    """
+    # --- CSS for floating widget
+    st.markdown("""
+    <style>
+      /* Floating container shell */
+      .fynyx-fab-container {
+        position: fixed;
+        right: 20px;
+        bottom: 20px;
+        z-index: 9999;
+      }
+      .fynyx-fab-container .fab-btn button {
+        border-radius: 9999px;
+        padding: 10px 16px;
+        font-weight: 600;
+        box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+      }
+      /* Chat panel */
+      .fynyx-chat-panel {
+        position: fixed;
+        right: 20px;
+        bottom: 80px;
+        width: min(420px, 94vw);
+        max-height: min(70vh, 680px);
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 14px;
+        box-shadow: 0 12px 30px rgba(0,0,0,0.18);
+        overflow: hidden;
+        z-index: 9999;
+      }
+      .fynyx-chat-header {
+        padding: 10px 12px;
+        background: #0f172a; /* slate-900 */
+        color: #fff;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .fynyx-chat-body {
+        padding: 10px 12px 8px 12px;
+        max-height: 50vh;
+        overflow-y: auto;
+      }
+      .fynyx-msg {
+        margin: 8px 0;
+        padding: 10px 12px;
+        border-radius: 10px;
+        font-size: 0.92rem;
+        line-height: 1.3rem;
+      }
+      .fynyx-user { background: #eef2ff; align-self: flex-end; }
+      .fynyx-bot { background: #f1f5f9; }
+      .fynyx-chat-footer {
+        padding: 8px 10px 12px 10px;
+        border-top: 1px solid #e5e7eb;
+        background: #fff;
+      }
+      .fynyx-meta {
+        font-size: 0.74rem; color: #64748b; margin-top: 4px;
+      }
+      @media (max-width: 480px) {
+        .fynyx-chat-panel { bottom: 70px; right: 10px; width: 94vw; }
+      }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # --- Floating Action Button (FAB)
+    fab_col = st.container()
+    with fab_col:
+        # We wrap Streamlit buttons in a container and rely on the CSS above to fix it
+        fab_placeholder = st.empty()
+        with fab_placeholder.container():
+            cols = st.columns([1])  # minimal structure
+            with cols[0]:
+                open_label = "💬 Chat with FYNyx" if not st.session_state.chat_open else "✖ Close chat"
+                if st.button(open_label, key="fyn_fab_btn", help="Ask about savings, investing, debt, etc."):
+                    st.session_state.chat_open = not st.session_state.chat_open
+        # Pin the container visually
+        st.markdown("<div class='fynyx-fab-container'></div>", unsafe_allow_html=True)
+
+    # --- Chat Panel
+    if st.session_state.chat_open:
+        # Visual shell for the panel
+        st.markdown("<div class='fynyx-chat-panel'>", unsafe_allow_html=True)
+
+        # Header
+        st.markdown(
+            "<div class='fynyx-chat-header'>"
+            "<span>🤖 FYNyx — Financial Assistant</span>"
+            "<span style='font-size:12px;opacity:.9;'>"
+            f"{'AI online' if ai_available else 'Basic mode'}</span>"
+            "</div>",
+            unsafe_allow_html=True
+        )
+
+        # Body: show last 10 messages
+        body_container = st.container()
+        with body_container:
+            st.markdown("<div class='fynyx-chat-body'>", unsafe_allow_html=True)
+            history = st.session_state.chat_history[-10:]
+            if not history:
+                st.caption("Start a conversation. FYNyx tailors answers using your FHI and inputs.")
+            for chat in history:
+                st.markdown(
+                    f"<div class='fynyx-msg fynyx-user'><b>You:</b> {chat['question']}</div>",
+                    unsafe_allow_html=True
+                )
+                st.markdown(
+                    f"<div class='fynyx-msg fynyx-bot'><b>FYNyx:</b> {chat['response']}"
+                    f"<div class='fynyx-meta'>"
+                    f"{'🤖 AI' if chat.get('was_ai_response') else '🧠 Fallback'} • {chat['timestamp']}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # Footer: input + actions
+        st.markdown("<div class='fynyx-chat-footer'>", unsafe_allow_html=True)
+        with st.form(key="fyn_chat_form", clear_on_submit=True):
+            q = st.text_input("Ask FYNyx", value="", placeholder="e.g., How can I build my emergency fund?")
+            submitted = st.form_submit_button("Send")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        if submitted and q.strip():
+            fhi_context = {
+                'FHI': st.session_state.get('FHI', 0),
+                'income': st.session_state.get('monthly_income', 0),
+                'expenses': st.session_state.get('monthly_expenses', 0),
+                'savings': st.session_state.get('current_savings', 0)
+            }
+
+            if ai_available and model:
+                response = get_ai_response(q, fhi_context, model)
+            else:
+                response = get_fallback_response(q, fhi_context)
+
+            chat_entry = {
+                'question': q.strip(),
+                'response': response,
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'fhi_context': fhi_context,
+                'was_ai_response': ai_available
+            }
+            st.session_state.chat_history.append(chat_entry)
+            st.rerun()  # update panel immediately
+
+        # Close panel shell
+        st.markdown("</div>", unsafe_allow_html=True)
 
 # ===============================
 # MAIN APPLICATION
 # ===============================
 
-# Initialize session state
 initialize_session_state()
-
-# Initialize AI
 AI_AVAILABLE, model = initialize_ai()
 
-# Page configuration
+st.set_page_config(page_title="Fynstra", page_icon="⌧", layout="wide")
 st.title("⌧ Fynstra")
 st.markdown("### AI-Powered Financial Health Platform for Filipinos")
 
-# Show AI status
 if AI_AVAILABLE:
     st.success("🤖 FYNyx AI is online and ready to help!")
 else:
     st.warning("🤖 FYNyx AI is in basic mode. Install google-generativeai for full AI features.")
 
-# Sidebar navigation
+# Sidebar navigation (removed separate chatbot page)
 st.sidebar.title("Navigation")
-page = st.sidebar.selectbox("Choose a feature:", ["Financial Health Calculator", "Goal Tracker", "FYNyx Chatbot"])
+page = st.sidebar.selectbox("Choose a feature:", ["Financial Health Calculator", "Goal Tracker"])
 
 # ===============================
 # TAB 1: FINANCIAL HEALTH CALCULATOR
 # ===============================
 
 if page == "Financial Health Calculator":
-    # Form input container
     with st.container(border=True):
         st.subheader("Calculate your FHI Score")
         st.markdown("Enter your financial details to get your personalized Financial Health Index score and recommendations.")
-        
+
         col1, col2 = st.columns(2)
         with col1:
             age = st.number_input("Your Age", min_value=18, max_value=100, step=1, help="Your current age in years.")
@@ -406,11 +506,9 @@ if page == "Financial Health Calculator":
             net_worth = st.number_input("Net Worth (₱)", min_value=0.0, step=500.0,
                                         help="Total assets minus total liabilities.")
 
-    # FHI calculation logic
     if st.button("Check My Financial Health", type="primary"):
-        # Validate inputs first
-        errors, warnings = validate_financial_inputs(monthly_income, monthly_expenses, monthly_debt, monthly_savings)
-        
+        errors, warnings_ = validate_financial_inputs(monthly_income, monthly_expenses, monthly_debt, monthly_savings)
+
         if errors:
             for error in errors:
                 st.error(error)
@@ -418,27 +516,23 @@ if page == "Financial Health Calculator":
         elif monthly_income == 0 or monthly_expenses == 0:
             st.warning("Please input your income and expenses.")
         else:
-            # Show warnings if any
-            for warning in warnings:
-                st.warning(warning)
-            
-            # Calculate FHI
-            FHI, components = calculate_fhi(age, monthly_income, monthly_expenses, monthly_savings, 
-                                          monthly_debt, total_investments, net_worth, emergency_fund)
+            for w in warnings_:
+                st.warning(w)
+
+            FHI, components = calculate_fhi(age, monthly_income, monthly_expenses, monthly_savings,
+                                            monthly_debt, total_investments, net_worth, emergency_fund)
             FHI_rounded = round(FHI, 2)
-            
-            # Store in session state
+
             st.session_state["FHI"] = FHI_rounded
             st.session_state["monthly_income"] = monthly_income
             st.session_state["monthly_expenses"] = monthly_expenses
             st.session_state["current_savings"] = monthly_savings
             st.session_state["components"] = components
-            
+
             st.markdown("---")
-            
-            # Display results
+
             score_col, text_col = st.columns([1, 2])
-            
+
             with score_col:
                 fig = create_gauge_chart(FHI_rounded)
                 st.plotly_chart(fig, use_container_width=True)
@@ -446,13 +540,7 @@ if page == "Financial Health Calculator":
             with text_col:
                 st.markdown(f"### Overall FHI Score: **{FHI_rounded}/100**")
 
-                # Identify weak areas
-                weak_areas = []
-                for component, score in components.items():
-                    if score < 60:
-                        weak_areas.append(component.lower())
-
-                # Construct weakness text
+                weak_areas = [c.lower() for c, s in components.items() if s < 60]
                 weak_text = ""
                 if weak_areas:
                     if len(weak_areas) == 1:
@@ -460,10 +548,8 @@ if page == "Financial Health Calculator":
                     else:
                         all_but_last = ", ".join(weak_areas[:-1])
                         weak_text = f" However, your {all_but_last} and {weak_areas[-1]} need improvement."
-
                     weak_text += " Addressing this will help strengthen your overall financial health."
 
-                # Final output based on FHI
                 if FHI >= 85:
                     st.success(f"🎯 Excellent! You're in great financial shape and well-prepared for the future.{weak_text}")
                 elif FHI >= 70:
@@ -473,14 +559,11 @@ if page == "Financial Health Calculator":
                 else:
                     st.error(f"🔴 Needs Improvement. Your finances require urgent attention — prioritize stabilizing your income, debt, and savings.{weak_text}")
 
-            # Component radar chart
             st.subheader("📈 Financial Health Breakdown")
             radar_fig = create_component_radar_chart(components)
             st.plotly_chart(radar_fig, use_container_width=True)
 
-            # Component interpretations
             st.subheader("📊 Detailed Analysis & Recommendations")
-
             component_descriptions = {
                 "Net Worth": "Your assets minus liabilities — shows your financial position. Higher is better.",
                 "Debt-to-Income": "Proportion of income used to pay debts. Lower is better.",
@@ -495,25 +578,19 @@ if page == "Financial Health Calculator":
                     with st.container(border=True):
                         help_text = component_descriptions.get(label, "Higher is better.")
                         st.markdown(f"**{label} Score:** {round(score)} / 100", help=help_text)
-
                         interpretation, suggestions = interpret_component(label, score)
                         st.markdown(f"<span style='font-size:13px; color:#444;'>{interpretation}</span>", unsafe_allow_html=True)
-
                         with st.expander("💡 How to improve"):
                             for tip in suggestions:
                                 st.write(f"- {tip}")
-            
-            # Peer comparison
+
             st.subheader("👥 How You Compare")
-            
-            # Simulated peer data
             peer_averages = {
                 "18-25": {"FHI": 45, "Savings Rate": 15, "Emergency Fund": 35},
                 "26-35": {"FHI": 55, "Savings Rate": 18, "Emergency Fund": 55},
                 "36-50": {"FHI": 65, "Savings Rate": 22, "Emergency Fund": 70},
                 "50+": {"FHI": 75, "Savings Rate": 25, "Emergency Fund": 85}
             }
-
             age_group = "18-25" if age < 26 else "26-35" if age < 36 else "36-50" if age < 51 else "50+"
             peer_data = peer_averages[age_group]
 
@@ -521,13 +598,12 @@ if page == "Financial Health Calculator":
             with col1:
                 st.metric("Your FHI", f"{FHI_rounded}", f"{FHI_rounded - peer_data['FHI']:+.0f} vs peers")
             with col2:
-                st.metric("Your Savings Rate", f"{components['Savings Rate']:.0f}%", 
-                         f"{components['Savings Rate'] - peer_data['Savings Rate']:+.0f}% vs peers")
+                st.metric("Your Savings Rate", f"{components['Savings Rate']:.0f}%",
+                          f"{components['Savings Rate'] - peer_data['Savings Rate']:+.0f}% vs peers")
             with col3:
-                st.metric("Your Emergency Fund", f"{components['Emergency Fund']:.0f}%", 
-                         f"{components['Emergency Fund'] - peer_data['Emergency Fund']:+.0f}% vs peers")
-            
-            # Download report
+                st.metric("Your Emergency Fund", f"{components['Emergency Fund']:.0f}%",
+                          f"{components['Emergency Fund'] - peer_data['Emergency Fund']:+.0f}% vs peers")
+
             if st.button("📄 Generate Report"):
                 report = generate_text_report(FHI_rounded, components, {
                     "age": age,
@@ -548,7 +624,7 @@ if page == "Financial Health Calculator":
 
 elif page == "Goal Tracker":
     st.subheader("🎯 Goal Tracker")
-    
+
     if "FHI" not in st.session_state:
         st.info("Please calculate your FHI score first to use the Goal Tracker.")
         if st.button("Go to Calculator"):
@@ -556,23 +632,23 @@ elif page == "Goal Tracker":
     else:
         with st.container(border=True):
             st.markdown("Set and track your financial goals")
-            
+
             col1, col2 = st.columns(2)
             with col1:
                 goal_amount = st.number_input("Savings Goal (₱)", min_value=0.0, step=1000.0)
                 goal_months = st.number_input("Time to Goal (months)", min_value=1, max_value=120, step=1)
-            
+
             with col2:
                 current_savings = st.session_state.get("current_savings", 0)
                 monthly_savings = st.session_state.get("current_savings", 0)
-                
+
                 if goal_amount > 0 and goal_months > 0:
                     needed_monthly = (goal_amount - current_savings) / goal_months if goal_amount > current_savings else 0
                     progress = (current_savings / goal_amount) * 100 if goal_amount > 0 else 0
-                    
+
                     st.metric("Monthly Savings Needed", f"₱{needed_monthly:,.0f}")
                     st.metric("Current Progress", f"{progress:.1f}%")
-                    
+
                     if monthly_savings >= needed_monthly:
                         st.success("✅ You're on track!")
                     else:
@@ -580,128 +656,15 @@ elif page == "Goal Tracker":
                         st.warning(f"⚠️ Increase savings by ₱{shortfall:,.0f}/month")
 
 # ===============================
-# TAB 3: FYNYX CHATBOT
-# ===============================
-
-elif page == "FYNyx Chatbot":
-    st.subheader("🤖 FYNyx - Your AI Financial Assistant")
-    
-    # Display chat history (Your existing code for this is fine)
-    if st.session_state.chat_history:
-        st.markdown("### Previous Conversations")
-        for i, chat in enumerate(st.session_state.chat_history[-5:]):
-            with st.expander(f"Q: {chat['question'][:50]}..." if len(chat['question']) > 50 else f"Q: {chat['question']}"):
-                st.markdown(f"**You asked:** {chat['question']}")
-                st.markdown(f"**FYNyx replied:** {chat['response']}")
-                st.caption(f"Asked on {chat['timestamp']}")
-                if 'was_ai_response' in chat:
-                    st.caption("🤖 AI-powered response" if chat['was_ai_response'] else "🧠 Smart fallback response")
-    
-    with st.container(border=True):
-        st.markdown("Ask FYNyx about your finances and get personalized AI-powered advice!")
-        
-        st.markdown("**Try asking:**")
-        sample_questions = [
-            "How can I improve my emergency fund?",
-            "What investments are good for beginners in the Philippines?",
-            "How should I pay off my debt faster?",
-            "What's a good savings rate for someone my age?",
-            "Should I invest in stocks or save more first?"
-        ]
-        
-        cols = st.columns(len(sample_questions))
-        for i, question in enumerate(sample_questions):
-            if cols[i % len(cols)].button(f"💡 {question}", key=f"sample_{i}"):
-                st.session_state.user_question = question
-                st.session_state.auto_process_question = True
-                st.rerun()
-        
-        user_question = st.text_input(
-            "Ask FYNyx:", 
-            value=st.session_state.get('user_question', ''),
-            placeholder="e.g., How can I improve my emergency fund?",
-            key="question_input"
-        )
-        
-        col1, col2 = st.columns([1, 4])
-        with col1:
-            ask_button = st.button("🚀 Ask FYNyx", type="primary")
-        with col2:
-            if st.button("🗑️ Clear Chat History"):
-                st.session_state.chat_history = []
-                st.success("Chat history cleared!")
-                st.rerun()
-        
-        should_process = ask_button and user_question.strip()
-        
-        if not should_process and user_question.strip() and st.session_state.get('auto_process_question', False):
-            should_process = True
-            st.session_state.auto_process_question = False
-        
-        if should_process:
-            with st.spinner("🤖 FYNyx is analyzing your question..."):
-                fhi_context = {
-                    'FHI': st.session_state.get('FHI', 0),
-                    'income': st.session_state.get('monthly_income', 0),
-                    'expenses': st.session_state.get('monthly_expenses', 0),
-                    'savings': st.session_state.get('current_savings', 0)
-                }
-                
-                if AI_AVAILABLE and model:
-                    response = get_ai_response(user_question, fhi_context, model)
-                else:
-                    response = get_fallback_response(user_question, fhi_context)
-                
-                # Display response
-                st.markdown("### 🤖 FYNyx's Response:")
-                st.info(response)
-                
-                # Save to chat history
-                chat_entry = {
-                    'question': user_question,
-                    'response': response,
-                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    'fhi_context': fhi_context,
-                    'was_ai_response': AI_AVAILABLE
-                }
-                st.session_state.chat_history.append(chat_entry)
-                
-                if 'user_question' in st.session_state:
-                    del st.session_state.user_question
-        
-        if st.session_state.chat_history:
-            st.markdown("**Quick Actions:**")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                if st.button("💰 More Savings Tips", key="savings_tip"):
-                    st.session_state.user_question = "Give me more specific tips to increase my savings rate"
-                    st.session_state.auto_process_question = True
-                    st.rerun()
-            with col2:
-                if st.button("📈 Investment Advice", key="investment_tip"):
-                    st.session_state.user_question = "What specific investments should I consider for my situation?"
-                    st.session_state.auto_process_question = True
-                    st.rerun()
-            with col3:
-                if st.button("🏦 Debt Strategy", key="debt_tip"):
-                    st.session_state.user_question = "What's the best strategy for my debt situation?"
-                    st.session_state.auto_process_question = True
-                    st.rerun()
-
-    if "FHI" in st.session_state:
-        st.markdown("---")
-        st.markdown("**🎯 FYNyx knows your context:**")
-        context_col1, context_col2, context_col3 = st.columns(3)
-        with context_col1:
-            st.metric("Your FHI", f"{st.session_state['FHI']}")
-        with context_col2:
-            st.metric("Monthly Income", f"₱{st.session_state.get('monthly_income', 0):,.0f}")
-        with context_col3:
-            st.metric("Monthly Savings", f"₱{st.session_state.get('current_savings', 0):,.0f}")
-# ===============================
 # FOOTER
 # ===============================
 
 st.markdown("---")
 st.markdown("**Fynstra AI** - Empowering Filipinos to **F**orecast, **Y**ield, and **N**avigate their financial future with confidence.")
 st.markdown("*Developed by Team HI-4requency for DataWave 2025*")
+
+# ===============================
+# RENDER FLOATING CHAT (on all pages)
+# ===============================
+
+render_floating_chat(AI_AVAILABLE, model)
