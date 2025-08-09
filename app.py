@@ -1399,6 +1399,7 @@ def render_current_page(app: "FynstraApp"):
         app.render_chat()
     else:
         app.render_dashboard()
+
 # ===============================
 # FLOATING FYNYX CHAT (lower-right, Streamlit-widgets only)
 # ===============================
@@ -1537,6 +1538,7 @@ def render_floating_chat(app: "FynstraApp"):
             ts2 = datetime.now().strftime("%Y-%m-%d %H:%M")
             ss.fyn_chat_messages.append({"role": "assistant", "content": reply, "ts": ts2})
             st.rerun()
+
 
 if __name__ == "__main__":
     app = FynstraApp()
