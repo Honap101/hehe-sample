@@ -473,187 +473,184 @@ if AI_AVAILABLE:
 else:
     st.warning("🤖 FYNyx AI is in basic mode. Install google-generativeai for full AI features.")
 
-# Sidebar navigation (removed separate chatbot page)
-st.sidebar.title("Navigation")
-page = st.sidebar.selectbox("Choose a feature:", ["Financial Health Calculator", "Goal Tracker"])
-
+tab_calc, tab_goals = st.tabs(["Financial Health Calculator", "Goal Tracker"])
 # ===============================
 # TAB 1: FINANCIAL HEALTH CALCULATOR
 # ===============================
-
-if page == "Financial Health Calculator":
-    with st.container(border=True):
-        st.subheader("Calculate your FHI Score")
-        st.markdown("Enter your financial details to get your personalized Financial Health Index score and recommendations.")
-
-        col1, col2 = st.columns(2)
-        with col1:
-            age = st.number_input("Your Age", min_value=18, max_value=100, step=1, help="Your current age in years.")
-            monthly_expenses = st.number_input("Monthly Living Expenses (₱)", min_value=0.0, step=50.0,
-                                               help="E.g., rent, food, transportation, utilities.")
-            monthly_savings = st.number_input("Monthly Savings (₱)", min_value=0.0, step=50.0,
-                                              help="The amount saved monthly.")
-            emergency_fund = st.number_input("Emergency Fund Amount (₱)", min_value=0.0, step=500.0,
-                                             help="For medical costs, job loss, or other emergencies.")
-
-        with col2:
-            monthly_income = st.number_input("Monthly Gross Income (₱)", min_value=0.0, step=100.0,
-                                             help="Income before taxes and deductions.")
-            monthly_debt = st.number_input("Monthly Debt Payments (₱)", min_value=0.0, step=50.0,
-                                           help="Loans, credit cards, etc.")
-            total_investments = st.number_input("Total Investments (₱)", min_value=0.0, step=500.0,
-                                                help="Stocks, bonds, retirement accounts.")
-            net_worth = st.number_input("Net Worth (₱)", min_value=0.0, step=500.0,
-                                        help="Total assets minus total liabilities.")
-
-    if st.button("Check My Financial Health", type="primary"):
-        errors, warnings_ = validate_financial_inputs(monthly_income, monthly_expenses, monthly_debt, monthly_savings)
-
-        if errors:
-            for error in errors:
-                st.error(error)
-            st.info("💡 Please review your inputs and try again.")
-        elif monthly_income == 0 or monthly_expenses == 0:
-            st.warning("Please input your income and expenses.")
-        else:
-            for w in warnings_:
-                st.warning(w)
-
-            FHI, components = calculate_fhi(age, monthly_income, monthly_expenses, monthly_savings,
-                                            monthly_debt, total_investments, net_worth, emergency_fund)
-            FHI_rounded = round(FHI, 2)
-
-            st.session_state["FHI"] = FHI_rounded
-            st.session_state["monthly_income"] = monthly_income
-            st.session_state["monthly_expenses"] = monthly_expenses
-            st.session_state["current_savings"] = monthly_savings
-            st.session_state["components"] = components
-
-            st.markdown("---")
-
-            score_col, text_col = st.columns([1, 2])
-
-            with score_col:
-                fig = create_gauge_chart(FHI_rounded)
-                st.plotly_chart(fig, use_container_width=True)
-
-            with text_col:
-                st.markdown(f"### Overall FHI Score: **{FHI_rounded}/100**")
-
-                weak_areas = [c.lower() for c, s in components.items() if s < 60]
-                weak_text = ""
-                if weak_areas:
-                    if len(weak_areas) == 1:
-                        weak_text = f" However, your {weak_areas[0]} needs improvement."
-                    else:
-                        all_but_last = ", ".join(weak_areas[:-1])
-                        weak_text = f" However, your {all_but_last} and {weak_areas[-1]} need improvement."
-                    weak_text += " Addressing this will help strengthen your overall financial health."
-
-                if FHI >= 85:
-                    st.success(f"🎯 Excellent! You're in great financial shape and well-prepared for the future.{weak_text}")
-                elif FHI >= 70:
-                    st.info(f"🟢 Good! You have a solid foundation. Stay consistent and work on gaps where needed.{weak_text}")
-                elif FHI >= 50:
-                    st.warning(f"🟡 Fair. You're on your way, but some areas need attention to build a stronger safety net.{weak_text}")
-                else:
-                    st.error(f"🔴 Needs Improvement. Your finances require urgent attention — prioritize stabilizing your income, debt, and savings.{weak_text}")
-
-            st.subheader("📈 Financial Health Breakdown")
-            radar_fig = create_component_radar_chart(components)
-            st.plotly_chart(radar_fig, use_container_width=True)
-
-            st.subheader("📊 Detailed Analysis & Recommendations")
-            component_descriptions = {
-                "Net Worth": "Your assets minus liabilities — shows your financial position. Higher is better.",
-                "Debt-to-Income": "Proportion of income used to pay debts. Lower is better.",
-                "Savings Rate": "How much of your income you save. Higher is better.",
-                "Investment": "Proportion of assets invested for growth. Higher means better long-term potential.",
-                "Emergency Fund": "Covers how well you're protected in financial emergencies. Higher is better."
-            }
-
+with tab_calc:
+    if page == "Financial Health Calculator":
+        with st.container(border=True):
+            st.subheader("Calculate your FHI Score")
+            st.markdown("Enter your financial details to get your personalized Financial Health Index score and recommendations.")
+    
             col1, col2 = st.columns(2)
-            for i, (label, score) in enumerate(components.items()):
-                with (col1 if i % 2 == 0 else col2):
-                    with st.container(border=True):
-                        help_text = component_descriptions.get(label, "Higher is better.")
-                        st.markdown(f"**{label} Score:** {round(score)} / 100", help=help_text)
-                        interpretation, suggestions = interpret_component(label, score)
-                        st.markdown(f"<span style='font-size:13px; color:#444;'>{interpretation}</span>", unsafe_allow_html=True)
-                        with st.expander("💡 How to improve"):
-                            for tip in suggestions:
-                                st.write(f"- {tip}")
-
-            st.subheader("👥 How You Compare")
-            peer_averages = {
-                "18-25": {"FHI": 45, "Savings Rate": 15, "Emergency Fund": 35},
-                "26-35": {"FHI": 55, "Savings Rate": 18, "Emergency Fund": 55},
-                "36-50": {"FHI": 65, "Savings Rate": 22, "Emergency Fund": 70},
-                "50+": {"FHI": 75, "Savings Rate": 25, "Emergency Fund": 85}
-            }
-            age_group = "18-25" if age < 26 else "26-35" if age < 36 else "36-50" if age < 51 else "50+"
-            peer_data = peer_averages[age_group]
-
-            col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Your FHI", f"{FHI_rounded}", f"{FHI_rounded - peer_data['FHI']:+.0f} vs peers")
+                age = st.number_input("Your Age", min_value=18, max_value=100, step=1, help="Your current age in years.")
+                monthly_expenses = st.number_input("Monthly Living Expenses (₱)", min_value=0.0, step=50.0,
+                                                   help="E.g., rent, food, transportation, utilities.")
+                monthly_savings = st.number_input("Monthly Savings (₱)", min_value=0.0, step=50.0,
+                                                  help="The amount saved monthly.")
+                emergency_fund = st.number_input("Emergency Fund Amount (₱)", min_value=0.0, step=500.0,
+                                                 help="For medical costs, job loss, or other emergencies.")
+    
             with col2:
-                st.metric("Your Savings Rate", f"{components['Savings Rate']:.0f}%",
-                          f"{components['Savings Rate'] - peer_data['Savings Rate']:+.0f}% vs peers")
-            with col3:
-                st.metric("Your Emergency Fund", f"{components['Emergency Fund']:.0f}%",
-                          f"{components['Emergency Fund'] - peer_data['Emergency Fund']:+.0f}% vs peers")
-
-            if st.button("📄 Generate Report"):
-                report = generate_text_report(FHI_rounded, components, {
-                    "age": age,
-                    "income": monthly_income,
-                    "expenses": monthly_expenses,
-                    "savings": monthly_savings
-                })
-                st.download_button(
-                    label="Download Financial Health Report",
-                    data=report,
-                    file_name=f"fynstra_report_{datetime.now().strftime('%Y%m%d')}.txt",
-                    mime="text/plain"
-                )
+                monthly_income = st.number_input("Monthly Gross Income (₱)", min_value=0.0, step=100.0,
+                                                 help="Income before taxes and deductions.")
+                monthly_debt = st.number_input("Monthly Debt Payments (₱)", min_value=0.0, step=50.0,
+                                               help="Loans, credit cards, etc.")
+                total_investments = st.number_input("Total Investments (₱)", min_value=0.0, step=500.0,
+                                                    help="Stocks, bonds, retirement accounts.")
+                net_worth = st.number_input("Net Worth (₱)", min_value=0.0, step=500.0,
+                                            help="Total assets minus total liabilities.")
+    
+        if st.button("Check My Financial Health", type="primary"):
+            errors, warnings_ = validate_financial_inputs(monthly_income, monthly_expenses, monthly_debt, monthly_savings)
+    
+            if errors:
+                for error in errors:
+                    st.error(error)
+                st.info("💡 Please review your inputs and try again.")
+            elif monthly_income == 0 or monthly_expenses == 0:
+                st.warning("Please input your income and expenses.")
+            else:
+                for w in warnings_:
+                    st.warning(w)
+    
+                FHI, components = calculate_fhi(age, monthly_income, monthly_expenses, monthly_savings,
+                                                monthly_debt, total_investments, net_worth, emergency_fund)
+                FHI_rounded = round(FHI, 2)
+    
+                st.session_state["FHI"] = FHI_rounded
+                st.session_state["monthly_income"] = monthly_income
+                st.session_state["monthly_expenses"] = monthly_expenses
+                st.session_state["current_savings"] = monthly_savings
+                st.session_state["components"] = components
+    
+                st.markdown("---")
+    
+                score_col, text_col = st.columns([1, 2])
+    
+                with score_col:
+                    fig = create_gauge_chart(FHI_rounded)
+                    st.plotly_chart(fig, use_container_width=True)
+    
+                with text_col:
+                    st.markdown(f"### Overall FHI Score: **{FHI_rounded}/100**")
+    
+                    weak_areas = [c.lower() for c, s in components.items() if s < 60]
+                    weak_text = ""
+                    if weak_areas:
+                        if len(weak_areas) == 1:
+                            weak_text = f" However, your {weak_areas[0]} needs improvement."
+                        else:
+                            all_but_last = ", ".join(weak_areas[:-1])
+                            weak_text = f" However, your {all_but_last} and {weak_areas[-1]} need improvement."
+                        weak_text += " Addressing this will help strengthen your overall financial health."
+    
+                    if FHI >= 85:
+                        st.success(f"🎯 Excellent! You're in great financial shape and well-prepared for the future.{weak_text}")
+                    elif FHI >= 70:
+                        st.info(f"🟢 Good! You have a solid foundation. Stay consistent and work on gaps where needed.{weak_text}")
+                    elif FHI >= 50:
+                        st.warning(f"🟡 Fair. You're on your way, but some areas need attention to build a stronger safety net.{weak_text}")
+                    else:
+                        st.error(f"🔴 Needs Improvement. Your finances require urgent attention — prioritize stabilizing your income, debt, and savings.{weak_text}")
+    
+                st.subheader("📈 Financial Health Breakdown")
+                radar_fig = create_component_radar_chart(components)
+                st.plotly_chart(radar_fig, use_container_width=True)
+    
+                st.subheader("📊 Detailed Analysis & Recommendations")
+                component_descriptions = {
+                    "Net Worth": "Your assets minus liabilities — shows your financial position. Higher is better.",
+                    "Debt-to-Income": "Proportion of income used to pay debts. Lower is better.",
+                    "Savings Rate": "How much of your income you save. Higher is better.",
+                    "Investment": "Proportion of assets invested for growth. Higher means better long-term potential.",
+                    "Emergency Fund": "Covers how well you're protected in financial emergencies. Higher is better."
+                }
+    
+                col1, col2 = st.columns(2)
+                for i, (label, score) in enumerate(components.items()):
+                    with (col1 if i % 2 == 0 else col2):
+                        with st.container(border=True):
+                            help_text = component_descriptions.get(label, "Higher is better.")
+                            st.markdown(f"**{label} Score:** {round(score)} / 100", help=help_text)
+                            interpretation, suggestions = interpret_component(label, score)
+                            st.markdown(f"<span style='font-size:13px; color:#444;'>{interpretation}</span>", unsafe_allow_html=True)
+                            with st.expander("💡 How to improve"):
+                                for tip in suggestions:
+                                    st.write(f"- {tip}")
+    
+                st.subheader("👥 How You Compare")
+                peer_averages = {
+                    "18-25": {"FHI": 45, "Savings Rate": 15, "Emergency Fund": 35},
+                    "26-35": {"FHI": 55, "Savings Rate": 18, "Emergency Fund": 55},
+                    "36-50": {"FHI": 65, "Savings Rate": 22, "Emergency Fund": 70},
+                    "50+": {"FHI": 75, "Savings Rate": 25, "Emergency Fund": 85}
+                }
+                age_group = "18-25" if age < 26 else "26-35" if age < 36 else "36-50" if age < 51 else "50+"
+                peer_data = peer_averages[age_group]
+    
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Your FHI", f"{FHI_rounded}", f"{FHI_rounded - peer_data['FHI']:+.0f} vs peers")
+                with col2:
+                    st.metric("Your Savings Rate", f"{components['Savings Rate']:.0f}%",
+                              f"{components['Savings Rate'] - peer_data['Savings Rate']:+.0f}% vs peers")
+                with col3:
+                    st.metric("Your Emergency Fund", f"{components['Emergency Fund']:.0f}%",
+                              f"{components['Emergency Fund'] - peer_data['Emergency Fund']:+.0f}% vs peers")
+    
+                if st.button("📄 Generate Report"):
+                    report = generate_text_report(FHI_rounded, components, {
+                        "age": age,
+                        "income": monthly_income,
+                        "expenses": monthly_expenses,
+                        "savings": monthly_savings
+                    })
+                    st.download_button(
+                        label="Download Financial Health Report",
+                        data=report,
+                        file_name=f"fynstra_report_{datetime.now().strftime('%Y%m%d')}.txt",
+                        mime="text/plain"
+                    )
 
 # ===============================
 # TAB 2: GOAL TRACKER
 # ===============================
-
-elif page == "Goal Tracker":
-    st.subheader("🎯 Goal Tracker")
-
-    if "FHI" not in st.session_state:
-        st.info("Please calculate your FHI score first to use the Goal Tracker.")
-        if st.button("Go to Calculator"):
-            st.rerun()
-    else:
-        with st.container(border=True):
-            st.markdown("Set and track your financial goals")
-
-            col1, col2 = st.columns(2)
-            with col1:
-                goal_amount = st.number_input("Savings Goal (₱)", min_value=0.0, step=1000.0)
-                goal_months = st.number_input("Time to Goal (months)", min_value=1, max_value=120, step=1)
-
-            with col2:
-                current_savings = st.session_state.get("current_savings", 0)
-                monthly_savings = st.session_state.get("current_savings", 0)
-
-                if goal_amount > 0 and goal_months > 0:
-                    needed_monthly = (goal_amount - current_savings) / goal_months if goal_amount > current_savings else 0
-                    progress = (current_savings / goal_amount) * 100 if goal_amount > 0 else 0
-
-                    st.metric("Monthly Savings Needed", f"₱{needed_monthly:,.0f}")
-                    st.metric("Current Progress", f"{progress:.1f}%")
-
-                    if monthly_savings >= needed_monthly:
-                        st.success("✅ You're on track!")
-                    else:
-                        shortfall = needed_monthly - monthly_savings
-                        st.warning(f"⚠️ Increase savings by ₱{shortfall:,.0f}/month")
+with tab_goals:
+    elif page == "Goal Tracker":
+        st.subheader("🎯 Goal Tracker")
+    
+        if "FHI" not in st.session_state:
+            st.info("Please calculate your FHI score first to use the Goal Tracker.")
+            if st.button("Go to Calculator"):
+                st.rerun()
+        else:
+            with st.container(border=True):
+                st.markdown("Set and track your financial goals")
+    
+                col1, col2 = st.columns(2)
+                with col1:
+                    goal_amount = st.number_input("Savings Goal (₱)", min_value=0.0, step=1000.0)
+                    goal_months = st.number_input("Time to Goal (months)", min_value=1, max_value=120, step=1)
+    
+                with col2:
+                    current_savings = st.session_state.get("current_savings", 0)
+                    monthly_savings = st.session_state.get("current_savings", 0)
+    
+                    if goal_amount > 0 and goal_months > 0:
+                        needed_monthly = (goal_amount - current_savings) / goal_months if goal_amount > current_savings else 0
+                        progress = (current_savings / goal_amount) * 100 if goal_amount > 0 else 0
+    
+                        st.metric("Monthly Savings Needed", f"₱{needed_monthly:,.0f}")
+                        st.metric("Current Progress", f"{progress:.1f}%")
+    
+                        if monthly_savings >= needed_monthly:
+                            st.success("✅ You're on track!")
+                        else:
+                            shortfall = needed_monthly - monthly_savings
+                            st.warning(f"⚠️ Increase savings by ₱{shortfall:,.0f}/month")
 
 # ===============================
 # FOOTER
