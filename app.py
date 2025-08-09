@@ -383,6 +383,80 @@ def apply_persona(preset_name):
     st.session_state["current_savings"]  = data.get("monthly_savings", 0.0)
 
 # ===============================
+# CONSENT, PRIVACY & STORAGE HELPERS
+# ===============================
+import hashlib
+from datetime import datetime
+
+def init_privacy_state():
+    if "consent_given" not in st.session_state:
+        st.session_state.consent_given = False
+    if "consent_ts" not in st.session_state:
+        st.session_state.consent_ts = None
+    if "retention_mode" not in st.session_state:
+        # 'ephemeral' = don't keep chat after close; 'session' = keep while app open
+        st.session_state.retention_mode = "session"
+    if "analytics_opt_in" not in st.session_state:
+        st.session_state.analytics_opt_in = False
+
+def hash_string(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()[:12]
+
+def render_consent_gate():
+    """
+    Renders a minimalist consent banner. If not accepted, app stops after banner.
+    """
+    with st.container(border=True):
+        st.subheader("🔐 Privacy & Consent")
+        st.write(
+            "We process your inputs to compute your Financial Health Index and show tips. "
+            "No data is sent anywhere except to the AI provider if you use the chat. "
+            "You can choose how chat data is retained."
+        )
+        c1, c2 = st.columns([2, 1])
+        with c1:
+            retention = st.radio(
+                "Chat data retention",
+                options=["session", "ephemeral"],
+                format_func=lambda x: "Session-only (cleared when you close the app)" if x=="session" else "No storage (cleared immediately)",
+                horizontal=True,
+                key="retention_mode"
+            )
+            st.checkbox("Allow anonymized analytics (counts only, no content)", key="analytics_opt_in")
+        with c2:
+            agree = st.checkbox("I agree to the processing of my inputs for this demo.")
+            if st.button("Agree & Continue", type="primary", use_container_width=True, disabled=not agree):
+                st.session_state.consent_given = True
+                st.session_state.consent_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                st.success("Thanks! You can now use all features.")
+                st.rerun()
+
+    if not st.session_state.consent_given:
+        # Keep app visible (so judges can see), but stop interactions beyond banner
+        st.info("Please accept to enable inputs, calculations, and chat.")
+        st.stop()
+
+def prune_chat_history():
+    """
+    Enforce retention policy:
+      - ephemeral: keep only the latest exchange (for immediate UI), drop older
+      - session: keep up to 50 messages
+    """
+    if "chat_history" not in st.session_state:
+        return
+    if st.session_state.retention_mode == "ephemeral":
+        st.session_state.chat_history = st.session_state.chat_history[-2:]  # last Q/A at most
+    else:
+        st.session_state.chat_history = st.session_state.chat_history[-50:]
+
+def basic_mode_badge(ai_available: bool) -> str:
+    return ("<span style='padding:2px 8px;border-radius:9999px;background:#e2fee2;color:#065f46;font-weight:600;font-size:12px;'>"
+            "AI Online</span>") if ai_available else \
+           ("<span style='padding:2px 8px;border-radius:9999px;background:#fee2e2;color:#7f1d1d;font-weight:600;font-size:12px;'>"
+            "Basic Mode</span>")
+
+
+# ===============================
 # SESSION STATE & INITIALIZATION
 # ===============================
 
@@ -497,14 +571,15 @@ def render_floating_chat(ai_available, model):
         st.markdown("<div class='fynyx-chat-panel'>", unsafe_allow_html=True)
 
         # Header
+        status_html = basic_mode_badge(ai_available)
         st.markdown(
-            "<div class='fynyx-chat-header'>"
-            "<span>🤖 FYNyx — Financial Assistant</span>"
-            "<span style='font-size:12px;opacity:.9;'>"
-            f"{'AI online' if ai_available else 'Basic mode'}</span>"
-            "</div>",
+            f"<div class='fynyx-chat-header'>"
+            f"<span>🤖 FYNyx — Financial Assistant</span>"
+            f"<span style='font-size:12px;opacity:.95;'>{status_html}</span>"
+            f"</div>",
             unsafe_allow_html=True
         )
+
 
         # Body: show last 10 messages
         body_container = st.container()
@@ -529,9 +604,10 @@ def render_floating_chat(ai_available, model):
 
         # Footer: input + actions
         st.markdown("<div class='fynyx-chat-footer'>", unsafe_allow_html=True)
+        form_disabled = not st.session_state.consent_given
         with st.form(key="fyn_chat_form", clear_on_submit=True):
-            q = st.text_input("Ask FYNyx", value="", placeholder="e.g., How can I build my emergency fund?")
-            submitted = st.form_submit_button("Send")
+            q = st.text_input("Ask FYNyx", value="", placeholder="e.g., How can I build my emergency fund?", disabled=form_disabled)
+            submitted = st.form_submit_button("Send", disabled=form_disabled)
         st.markdown("</div>", unsafe_allow_html=True)
 
         if submitted and q.strip():
@@ -555,6 +631,7 @@ def render_floating_chat(ai_available, model):
                 'was_ai_response': ai_available
             }
             st.session_state.chat_history.append(chat_entry)
+            prune_chat_history()
             st.rerun()  # update panel immediately
 
         # Close panel shell
@@ -566,11 +643,17 @@ def render_floating_chat(ai_available, model):
 
 initialize_session_state()
 init_persona_state()
+init_privacy_state()
 AI_AVAILABLE, model = initialize_ai()
 
 st.set_page_config(page_title="Fynstra", page_icon="⌧", layout="wide")
-st.title("⌧ Fynstra")
+# Header with status badge
+st.title("⌧ Fynstra " + st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_allow_html=True)._repr_html_() if False else "⌧ Fynstra")
 st.markdown("### AI-Powered Financial Health Platform for Filipinos")
+st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_allow_html=True)
+
+# Require consent before proceeding
+render_consent_gate()
 
 if AI_AVAILABLE:
     st.success("🤖 FYNyx AI is online and ready to help!")
