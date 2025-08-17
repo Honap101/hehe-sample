@@ -22,7 +22,6 @@ def init_sheets_client():
     creds = Credentials.from_service_account_info(sa_info, scopes=scopes)
     return gspread.authorize(creds)
 
-
 @st.cache_resource
 def open_sheet():
     return init_sheets_client().open_by_key(st.secrets["SHEET_ID"])
