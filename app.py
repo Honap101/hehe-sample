@@ -6,6 +6,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 import uuid, hashlib
 from supabase import create_client
+import os
 
 st.set_page_config(page_title="Fynstra", page_icon="⌧", layout="wide")
 
@@ -83,7 +84,22 @@ with st.expander("🔧 Google Sheets connectivity test"):
 # -------------------------------
 @st.cache_resource
 def init_supabase():
-    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_ANON_KEY"])
+    url = st.secrets.get("SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+    key = st.secrets.get("SUPABASE_ANON_KEY") or os.environ.get("SUPABASE_ANON_KEY")
+    if not url or not key:
+        missing = []
+        if not url: missing.append("SUPABASE_URL")
+        if not key: missing.append("SUPABASE_ANON_KEY")
+        raise RuntimeError(
+            f"Supabase credentials missing: {', '.join(missing)}. "
+            "Add them to Streamlit secrets (or env vars) and restart."
+        )
+    return create_client(url, key)
+
+def debug_secrets_presence():
+    present = [k for k in ("SUPABASE_URL","SUPABASE_ANON_KEY") if k in st.secrets]
+    missing = [k for k in ("SUPABASE_URL","SUPABASE_ANON_KEY") if k not in st.secrets]
+    st.caption(f"Supabase secrets present: {present} • missing: {missing}")
 
 def init_auth_state():
     if "auth" not in st.session_state:
