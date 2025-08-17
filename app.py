@@ -5,6 +5,7 @@ import json
 import gspread
 from google.oauth2.service_account import Credentials
 import uuid, hashlib
+from supabase import create_client
 
 st.set_page_config(page_title="Fynstra", page_icon="⌧", layout="wide")
 
@@ -76,6 +77,85 @@ with st.expander("🔧 Google Sheets connectivity test"):
         except Exception as e:
             st.error(f"Sheets error: {e}")
             st.caption("Hints: Did you share the Sheet with your service account as Editor? Are Sheets/Drive APIs enabled? Is the JSON in secrets with \\n in the private_key?")
+
+# -------------------------------
+# AUTH: Supabase helpers
+# -------------------------------
+@st.cache_resource
+def init_supabase():
+    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_ANON_KEY"])
+
+def init_auth_state():
+    if "auth" not in st.session_state:
+        st.session_state.auth = {"user": None, "access_token": None}
+
+def set_user_session(user, access_token=None):
+    st.session_state.auth["user"] = user
+    st.session_state.auth["access_token"] = access_token
+    # Feed your existing identity pipe so Sheets logs include real users
+    st.session_state["auth_method"] = "email"
+    st.session_state["user_id"] = user.get("id")
+    st.session_state["email"] = user.get("email")
+    meta = (user.get("user_metadata") or {})
+    st.session_state["display_name"] = meta.get("username") or user.get("email")
+
+def sign_out():
+    st.session_state.auth = {"user": None, "access_token": None}
+    for k in ["auth_method","user_id","email","display_name"]:
+        st.session_state.pop(k, None)
+
+def render_auth_panel():
+    supabase = init_supabase()
+    init_auth_state()
+
+    if st.session_state.auth["user"]:
+        u = st.session_state.auth["user"]
+        with st.container(border=True):
+            st.success(f"Signed in as **{u.get('email')}**")
+            if st.button("Sign out"):
+                sign_out()
+                st.rerun()
+        return
+
+    st.markdown("### 🔐 Create an account or log in")
+    tab_signup, tab_login = st.tabs(["Sign up", "Log in"])
+
+    with tab_signup:
+        with st.form("signup_form"):
+            username = st.text_input("Username (display name)")
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Create account", type="primary")
+        if submitted:
+            try:
+                resp = supabase.auth.sign_up({
+                    "email": email,
+                    "password": password,
+                    "options": {"data": {"username": username}}
+                })
+                if resp.user:
+                    st.success("Account created! Check your email to verify (if enabled), then log in.")
+                else:
+                    st.warning("Sign-up initiated. Check your email.")
+            except Exception as e:
+                st.error(f"Sign-up error: {e}")
+
+    with tab_login:
+        with st.form("login_form"):
+            email_l = st.text_input("Email", key="login_email")
+            password_l = st.text_input("Password", type="password", key="login_password")
+            submitted_l = st.form_submit_button("Log in", type="primary")
+        if submitted_l:
+            try:
+                resp = supabase.auth.sign_in_with_password({"email": email_l, "password": password_l})
+                if resp.session and resp.user:
+                    set_user_session(resp.user.model_dump(), resp.session.access_token)
+                    st.success("Logged in!")
+                    st.rerun()
+                else:
+                    st.error("Login failed.")
+            except Exception as e:
+                st.error(f"Login error: {e}")
 
 
 # ===============================
@@ -721,7 +801,6 @@ init_persona_state()
 init_privacy_state()
 AI_AVAILABLE, model = initialize_ai()
 
-st.set_page_config(page_title="Fynstra", page_icon="⌧", layout="wide")
 # Header with status badge
 st.title("⌧ Fynstra " + st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_allow_html=True)._repr_html_() if False else "⌧ Fynstra")
 st.markdown("### AI-Powered Financial Health Platform for Filipinos")
@@ -729,6 +808,7 @@ st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_allow_html=True)
 
 # Require consent before proceeding
 render_consent_gate()
+render_auth_panel()
 
 if AI_AVAILABLE:
     st.success("🤖 FYNyx AI is online and ready to help!")
