@@ -14,13 +14,14 @@ st.set_page_config(page_title="Fynstra", page_icon="⌧", layout="wide")
 
 @st.cache_resource
 def init_sheets_client():
-    sa_info = json.loads(st.secrets["GOOGLE_SERVICE_ACCOUNT_JSON"])
+    sa_info = dict(st.secrets["GOOGLE_SERVICE_ACCOUNT"])
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
     ]
     creds = Credentials.from_service_account_info(sa_info, scopes=scopes)
     return gspread.authorize(creds)
+
 
 @st.cache_resource
 def open_sheet():
