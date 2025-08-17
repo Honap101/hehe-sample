@@ -2,6 +2,81 @@ import streamlit as st
 import plotly.graph_objects as go
 from datetime import datetime
 import json
+import gspread
+from google.oauth2.service_account import Credentials
+import uuid, hashlib
+
+st.set_page_config(page_title="Fynstra", page_icon="⌧", layout="wide")
+
+# ===============================
+# GOOGLE SHEETS HELPERS
+# ===============================
+
+@st.cache_resource
+def init_sheets_client():
+    sa_info = json.loads(st.secrets["GOOGLE_SERVICE_ACCOUNT_JSON"])
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    creds = Credentials.from_service_account_info(sa_info, scopes=scopes)
+    return gspread.authorize(creds)
+
+@st.cache_resource
+def open_sheet():
+    return init_sheets_client().open_by_key(st.secrets["SHEET_ID"])
+
+def append_row(worksheet_name: str, row: list):
+    """Append a row to a worksheet; create the sheet and header if missing."""
+    sh = open_sheet()
+    try:
+        ws = sh.worksheet(worksheet_name)
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(title=worksheet_name, rows=1000, cols=30)
+        ws.append_row([
+            "ts","auth_method","user_id","email","display_name",
+            "age","income","expenses","savings","debt","investments","net_worth","emergency_fund","FHI"
+        ])
+    ws.append_row(row, value_input_option="USER_ENTERED")
+
+# --- Minimal identity (guest for now; upgrade later when you add real sign-in) ---
+def _anon_id():
+    if "anon_id" not in st.session_state:
+        st.session_state.anon_id = hashlib.sha256(str(uuid.uuid4()).encode()).hexdigest()[:12]
+    return st.session_state.anon_id
+
+def get_user_identity():
+    return {
+        "auth_method": st.session_state.get("auth_method", "guest"),
+        "user_id": st.session_state.get("user_id", _anon_id()),
+        "email": st.session_state.get("email", None),
+        "display_name": st.session_state.get("display_name", None),
+    }
+
+def worksheet_for(identity: dict) -> str:
+    mapping = {
+        "google": "Log_Google",
+        "email": "Log_Email",
+        "guest": "Log_Guests",
+    }
+    return mapping.get(identity["auth_method"], "Log_Others")
+
+with st.expander("🔧 Google Sheets connectivity test"):
+    if st.button("Ping Sheet"):
+        try:
+            sh = open_sheet()
+            st.success(f"Connected to: {sh.title}")
+            try:
+                ws = sh.worksheet("Log_Guests")
+            except gspread.WorksheetNotFound:
+                ws = sh.add_worksheet("Log_Guests", rows=1000, cols=30)
+                ws.append_row(["ts","note"])
+            ws.append_row([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "hello 👋"], value_input_option="USER_ENTERED")
+            st.info("Appended a test row to Log_Guests.")
+        except Exception as e:
+            st.error(f"Sheets error: {e}")
+            st.caption("Hints: Did you share the Sheet with your service account as Editor? Are Sheets/Drive APIs enabled? Is the JSON in secrets with \\n in the private_key?")
+
 
 # ===============================
 # AI & RESPONSE FUNCTIONS
@@ -768,6 +843,22 @@ with tab_calc:
                 FHI, components = calculate_fhi(age, monthly_income, monthly_expenses, monthly_savings,
                                                 monthly_debt, total_investments, net_worth, emergency_fund)
                 FHI_rounded = round(FHI, 2)
+                
+                # --- ADD: Save to Google Sheet (respects your consent gate) ---
+                if st.session_state.consent_given:
+                    try:
+                        ident = get_user_identity()
+                        ws_name = worksheet_for(ident)
+                        append_row(ws_name, [
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            ident["auth_method"], ident["user_id"], ident["email"], ident["display_name"],
+                            age, monthly_income, monthly_expenses, monthly_savings, monthly_debt,
+                            total_investments, net_worth, emergency_fund, FHI_rounded
+                        ])
+                        st.toast("💾 Saved to Google Sheet", icon="✅")
+                    except Exception as e:
+                        st.warning(f"Could not log to Google Sheet: {e}")
+
     
                 st.session_state["FHI"] = FHI_rounded
                 st.session_state["monthly_income"] = monthly_income
