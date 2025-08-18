@@ -99,8 +99,12 @@ def ensure_tables():
             # persisted profile fields
             "age","monthly_income","monthly_expenses","monthly_savings",
             "monthly_debt","total_investments","net_worth","emergency_fund",
-            "last_FHI"
+            "last_FHI",
+            # consent & prefs
+            "consent_processing","consent_storage","consent_ai","analytics_opt_in",
+            "consent_version","consent_ts"
         ])
+
 
     # Auth events log: append-only
     try:
@@ -148,13 +152,15 @@ def upsert_user_row(user: dict, payload: dict | None = None):
         # Find by user_id
         values = ws.get_all_values()
         if not values:
-            # Shouldn't happen because ensure_tables() adds headers, but just in case:
             values = [[
                 "user_id","email","username","created_at","last_login",
                 "age","monthly_income","monthly_expenses","monthly_savings",
                 "monthly_debt","total_investments","net_worth","emergency_fund",
-                "last_FHI"
+                "last_FHI",
+                "consent_processing","consent_storage","consent_ai","analytics_opt_in",
+                "consent_version","consent_ts"
             ]]
+
         header = values[0]
         rows = values[1:]
         uid_idx = header.index("user_id") if "user_id" in header else None
@@ -260,10 +266,28 @@ def render_auth_panel():
         u = st.session_state.auth["user"]
         with st.container(border=True):
             st.success(f"Signed in as **{u.get('email')}**")
-            if st.button("Sign out"):
-                sign_out()
-                st.rerun()
+            c1, c2 = st.columns([1,1])
+            with c1:
+                if st.button("Sign out"):
+                    sign_out()
+                    st.rerun()
+            with c2:
+                st.caption(f"User ID: `{st.session_state.get('user_id')}`")
+    
+        # ▼ Add this privacy section for logged-in users
+        with st.expander("🔒 Privacy & data controls"):
+            st.markdown("Download a copy of your data or delete your saved profile in Google Sheets.")
+            export_my_data_ui()
+    
+            # small confirm gate for delete
+            confirm = st.checkbox("I understand this will permanently delete my saved profile.")
+            if confirm:
+                forget_me_ui()
+            else:
+                st.caption("Check the box to enable deletion.")
+    
         return
+
 
     st.markdown("### 🔐 Create an account or log in")
     tab_signup, tab_login = st.tabs(["Sign up", "Log in"])
@@ -312,6 +336,14 @@ def render_auth_panel():
                         def _num(x): 
                             try: return float(x)
                             except: return 0.0
+
+                        for flag in ["consent_processing","consent_storage","consent_ai","analytics_opt_in"]:
+                            if saved.get(flag) is not None and saved.get(flag) != "":
+                                st.session_state[flag] = str(saved[flag]).lower() in ("true","1")
+                    
+                        if saved.get("consent_ts"):
+                            st.session_state["consent_ts"] = saved["consent_ts"]
+
                         if saved.get("age"): st.session_state["persona_defaults"]["age"] = int(float(saved["age"]))
                         for k_src, k_dst in [
                             ("monthly_income","monthly_income"),
@@ -723,53 +755,71 @@ def apply_persona(preset_name):
 # ===============================
 # CONSENT, PRIVACY & STORAGE HELPERS
 # ===============================
+CONSENT_VERSION = "v1"
+
 def init_privacy_state():
-    if "consent_given" not in st.session_state:
-        st.session_state.consent_given = False
+    if "consent_processing" not in st.session_state:
+        st.session_state.consent_processing = False
+    if "consent_storage" not in st.session_state:
+        st.session_state.consent_storage = False
+    if "consent_ai" not in st.session_state:
+        st.session_state.consent_ai = False
+    if "analytics_opt_in" not in st.session_state:
+        st.session_state.analytics_opt_in = False
     if "consent_ts" not in st.session_state:
         st.session_state.consent_ts = None
     if "retention_mode" not in st.session_state:
-        # 'ephemeral' = don't keep chat after close; 'session' = keep while app open
         st.session_state.retention_mode = "session"
-    if "analytics_opt_in" not in st.session_state:
-        st.session_state.analytics_opt_in = False
+        
+def save_user_consents(user_id_email_meta):
+    user_stub = {
+        "id": user_id_email_meta["id"],
+        "email": user_id_email_meta.get("email"),
+        "user_metadata": {"username": user_id_email_meta.get("display_name")}
+    }
+    upsert_user_row(user_stub, payload={
+        "consent_processing": st.session_state.consent_processing,
+        "consent_storage": st.session_state.consent_storage,
+        "consent_ai": st.session_state.consent_ai,
+        "analytics_opt_in": st.session_state.analytics_opt_in,
+        "consent_version": CONSENT_VERSION,
+        "consent_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    })
+
+def render_consent_card():
+    with st.container(border=True):
+        st.subheader("🔐 Privacy & Consent")
+        st.write("Choose what you’re comfortable with. You can change this anytime in Settings.")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.checkbox("Allow processing to compute FHI (required)",
+                        key="consent_processing")
+            st.checkbox("Allow saving my profile & calculations to Google Sheets",
+                        key="consent_storage")
+            st.checkbox("Allow sending my questions/context to the AI provider",
+                        key="consent_ai")
+        with c2:
+            st.radio("Chat data retention",
+                     options=["session","ephemeral"],
+                     key="retention_mode",
+                     horizontal=True)
+            st.checkbox("Allow anonymized analytics (counts only)", key="analytics_opt_in")
+
+        save_disabled = not st.session_state.consent_processing
+        if st.button("Save privacy preferences", type="primary", disabled=save_disabled):
+            st.session_state.consent_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            if st.session_state.get("user_id"):
+                save_user_consents({
+                    "id": st.session_state["user_id"],
+                    "email": st.session_state.get("email"),
+                    "display_name": st.session_state.get("display_name")
+                })
+            st.success("Preferences saved")
+            st.rerun()
 
 def hash_string(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()[:12]
-
-def render_consent_gate():
-    """
-    Renders a minimalist consent banner. If not accepted, app stops after banner.
-    """
-    with st.container(border=True):
-        st.subheader("🔐 Privacy & Consent")
-        st.write(
-            "We process your inputs to compute your Financial Health Index and show tips. "
-            "No data is sent anywhere except to the AI provider if you use the chat. "
-            "You can choose how chat data is retained."
-        )
-        c1, c2 = st.columns([2, 1])
-        with c1:
-            retention = st.radio(
-                "Chat data retention",
-                options=["session", "ephemeral"],
-                format_func=lambda x: "Session-only (cleared when you close the app)" if x=="session" else "No storage (cleared immediately)",
-                horizontal=True,
-                key="retention_mode"
-            )
-            st.checkbox("Allow anonymized analytics (counts only, no content)", key="analytics_opt_in")
-        with c2:
-            agree = st.checkbox("I agree to the processing of my inputs for this demo.")
-            if st.button("Agree & Continue", type="primary", use_container_width=True, disabled=not agree):
-                st.session_state.consent_given = True
-                st.session_state.consent_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                st.success("Thanks! You can now use all features.")
-                st.rerun()
-
-    if not st.session_state.consent_given:
-        # Keep app visible (so judges can see), but stop interactions beyond banner
-        st.info("Please accept to enable inputs, calculations, and chat.")
-        st.stop()
 
 def prune_chat_history():
     """
@@ -783,6 +833,52 @@ def prune_chat_history():
         st.session_state.chat_history = st.session_state.chat_history[-2:]  # last Q/A at most
     else:
         st.session_state.chat_history = st.session_state.chat_history[-50:]
+
+def export_my_data_ui():
+    if not st.session_state.get("user_id"):
+        return
+    if st.button("📦 Export my data"):
+        try:
+            sh = open_sheet()
+            users = sh.worksheet(USERS_SHEET).get_all_records()
+            events = sh.worksheet(AUTH_EVENTS_SHEET).get_all_records()
+            uid = st.session_state["user_id"]
+            my_user = [r for r in users if r.get("user_id")==uid]
+            my_events = [r for r in events if r.get("user_id")==uid]
+            payload = json.dumps({"user": my_user, "events": my_events}, indent=2)
+            st.download_button("Download JSON", data=payload, file_name="fynstra_export.json")
+        except Exception as e:
+            st.warning(f"Export failed: {e}")
+
+def forget_me_ui():
+    if not st.session_state.get("user_id"):
+        return
+    if st.button("🗑️ Delete my saved profile"):
+        try:
+            sh = open_sheet()
+            ws = sh.worksheet(USERS_SHEET)
+            vals = ws.get_all_values()
+            header = vals[0]; rows = vals[1:]
+            uid_idx = header.index("user_id")
+            to_delete = None
+            for i, row in enumerate(rows, start=2):
+                if len(row)>uid_idx and row[uid_idx]==st.session_state["user_id"]:
+                    to_delete = i
+                    break
+            if to_delete:
+                ws.delete_rows(to_delete)
+                st.success("Your saved profile has been deleted.")
+            else:
+                st.info("No saved profile found.")
+        except Exception as e:
+            st.warning(f"Delete failed: {e}")
+            
+try:
+    _invalidate_users_cache()
+except: 
+    pass
+for k in ["persona_defaults","FHI","monthly_income","monthly_expenses","current_savings","components"]:
+    st.session_state.pop(k, None)
 
 def basic_mode_badge(ai_available: bool) -> str:
     return ("<span style='padding:2px 8px;border-radius:9999px;background:#e2fee2;color:#065f46;font-weight:600;font-size:12px;'>"
@@ -953,10 +1049,12 @@ def render_floating_chat(ai_available, model):
                 'savings': st.session_state.get('current_savings', 0)
             }
 
-            if ai_available and model:
+            use_ai = st.session_state.get("consent_ai", False)
+            if use_ai and ai_available and model:
                 response = get_ai_response(q, fhi_context, model)
             else:
                 response = get_fallback_response(q, fhi_context)
+
 
             chat_entry = {
                 'question': q.strip(),
@@ -986,13 +1084,16 @@ st.title("⌧ Fynstra " + st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_all
 st.markdown("### AI-Powered Financial Health Platform for Filipinos")
 st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_allow_html=True)
 
-# Require consent before proceeding
-render_consent_gate()
 try:
     ensure_tables()
 except Exception as e:
     st.warning(f"Could not ensure Sheets tables yet: {e}")
+
 render_auth_panel()
+
+# Show consent card if (a) not yet accepted processing OR (b) user wants to modify
+if not st.session_state.get("consent_processing", False):
+    render_consent_card()
 
 if AI_AVAILABLE:
     st.success("🤖 FYNyx AI is online and ready to help!")
@@ -1110,40 +1211,39 @@ with tab_calc:
 
                 # --- AUTO-SAVE user profile if logged in (no button needed) ---
                 if st.session_state.get("auth_method") == "email" and st.session_state.get("user_id"):
-                    user_stub = {
-                        "id": st.session_state["user_id"],
-                        "email": st.session_state.get("email"),
-                        "user_metadata": {"username": st.session_state.get("display_name")}
-                    }
-                    upsert_user_row(user_stub, payload={
-                        "age": age,
-                        "monthly_income": monthly_income,
-                        "monthly_expenses": monthly_expenses,
-                        "monthly_savings": monthly_savings,
-                        "monthly_debt": monthly_debt,
-                        "total_investments": total_investments,
-                        "net_worth": net_worth,
-                        "emergency_fund": emergency_fund,
-                        "last_FHI": FHI_rounded
-                    })
-                    # optional: lightweight toast + event log
-                    st.toast("Autosaved profile to Google Sheet ✅", icon="✅")
-                    log_auth_event("profile_autosaved", user_stub, note="Saved after calculation")
+                    if st.session_state.get("consent_storage", False):
+                        user_stub = {
+                            "id": st.session_state["user_id"],
+                            "email": st.session_state.get("email"),
+                            "user_metadata": {"username": st.session_state.get("display_name")}
+                        }
+                        upsert_user_row(user_stub, payload={
+                            "age": age,
+                            "monthly_income": monthly_income,
+                            "monthly_expenses": monthly_expenses,
+                            "monthly_savings": monthly_savings,
+                            "monthly_debt": monthly_debt,
+                            "total_investments": total_investments,
+                            "net_worth": net_worth,
+                            "emergency_fund": emergency_fund,
+                            "last_FHI": FHI_rounded
+                        })
+                        # optional: lightweight toast + event log
+                        st.toast("Autosaved profile to Google Sheet ✅", icon="✅")
+                        log_auth_event("profile_autosaved", user_stub, note="Saved after calculation")
+                    else:
+                        st.caption("Autosave is off (you disabled storage).")
                 
                 # --- ADD: Save to Google Sheet (respects your consent gate) ---
-                if st.session_state.consent_given:
+                if st.session_state.get("consent_storage", False):
                     try:
                         ident = get_user_identity()
                         ws_name = worksheet_for(ident)
-                        append_row(ws_name, [
-                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            ident["auth_method"], ident["user_id"], ident["email"], ident["display_name"],
-                            age, monthly_income, monthly_expenses, monthly_savings, monthly_debt,
-                            total_investments, net_worth, emergency_fund, FHI_rounded
-                        ])
+                        append_row(ws_name, [ ... ])
                         st.toast("💾 Saved to Google Sheet", icon="✅")
                     except Exception as e:
                         st.warning(f"Could not log to Google Sheet: {e}")
+
 
     
                 st.session_state["FHI"] = FHI_rounded
