@@ -802,32 +802,48 @@ def render_consent_card():
         st.subheader("🔐 Privacy & Consent")
         st.write("Choose what you’re comfortable with. You can change this anytime in Settings.")
 
-        c1, c2 = st.columns(2)
-        with c1:
-            st.checkbox("Allow processing to compute FHI (required)",
-                        key="consent_processing")
-            st.checkbox("Allow saving my profile & calculations to Google Sheets",
-                        key="consent_storage")
-            st.checkbox("Allow sending my questions/context to the AI provider",
-                        key="consent_ai")
-        with c2:
-            st.radio("Chat data retention",
-                     options=["session","ephemeral"],
-                     key="retention_mode",
-                     horizontal=True)
-            st.checkbox("Allow anonymized analytics (counts only)", key="analytics_opt_in")
+        with st.form("privacy_form", clear_on_submit=False):
+            c1, c2 = st.columns(2)
+            with c1:
+                consent_processing = st.checkbox("Allow processing to compute FHI (required)",
+                                                 value=st.session_state.get("consent_processing", False))
+                consent_storage = st.checkbox("Allow saving my profile & calculations to Google Sheets",
+                                              value=st.session_state.get("consent_storage", False))
+                consent_ai = st.checkbox("Allow sending my questions/context to the AI provider",
+                                         value=st.session_state.get("consent_ai", False))
+            with c2:
+                retention_mode = st.radio("Chat data retention",
+                                          options=["session","ephemeral"],
+                                          index=(0 if st.session_state.get("retention_mode","session")=="session" else 1),
+                                          horizontal=True)
+                analytics_opt_in = st.checkbox("Allow anonymized analytics (counts only)",
+                                               value=st.session_state.get("analytics_opt_in", False))
 
-        save_disabled = not st.session_state.consent_processing
-        if st.button("Save privacy preferences", type="primary", disabled=save_disabled):
+            save_disabled = not consent_processing
+            submitted = st.form_submit_button("Save privacy preferences", type="primary", disabled=save_disabled)
+
+        if submitted:
+            # persist in session
+            st.session_state.consent_processing = consent_processing
+            st.session_state.consent_storage = consent_storage
+            st.session_state.consent_ai = consent_ai
+            st.session_state.retention_mode = retention_mode
+            st.session_state.analytics_opt_in = analytics_opt_in
             st.session_state.consent_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            st.session_state.consent_given = True
+
+            # optionally persist to Sheets if logged in
             if st.session_state.get("user_id"):
                 save_user_consents({
                     "id": st.session_state["user_id"],
                     "email": st.session_state.get("email"),
                     "display_name": st.session_state.get("display_name")
                 })
+
+            st.session_state.show_privacy = False
             st.success("Preferences saved")
             st.rerun()
+
 
 def hash_string(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()[:12]
@@ -1049,6 +1065,7 @@ def render_floating_chat(ai_available, model):
         st.markdown("<div class='fynyx-chat-footer'>", unsafe_allow_html=True)
         form_disabled = not (st.session_state.get("consent_processing", False) and
                              st.session_state.get("consent_ai", False))
+
         with st.form(key="fyn_chat_form", clear_on_submit=True):
             q = st.text_input("Ask FYNyx", value="", placeholder="e.g., How can I build my emergency fund?", disabled=form_disabled)
             submitted = st.form_submit_button("Send", disabled=form_disabled)
@@ -1107,8 +1124,13 @@ except Exception as e:
 
 render_auth_panel()
 
-# Show consent card if (a) not yet accepted processing OR (b) user wants to modify
-if not st.session_state.get("consent_processing", False):
+# Add near the header (before calling render_consent_card)
+if st.button("⚙️ Privacy & consent settings"):
+    st.session_state.show_privacy = True
+    st.rerun()
+
+# Show consent card if user hasn’t saved yet, OR if they explicitly opened it
+if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_processing", False):
     render_consent_card()
 
 if AI_AVAILABLE:
