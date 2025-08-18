@@ -175,16 +175,10 @@ def upsert_user_row(user: dict, payload: dict | None = None):
         if found_row_idx:
             update_map = {"last_login": now}
             update_map.update(payload)
-            data = []
             for k, v in update_map.items():
                 if k in header:
-                    r = found_row_idx
-                    c = header.index(k) + 1
-                    # A1 address -> e.g., "C5"
-                    col_letter = gspread.utils.rowcol_to_a1(r, c)
-                    data.append({'range': f'{USERS_SHEET}!{col_letter}', 'values': [[v]]})
-            if data:
-                ws.batch_update(data, value_input_option="USER_ENTERED")
+                    ws.update_cell(found_row_idx, header.index(k) + 1, v)
+
         else:
             # new row with created_at + last_login
             base["created_at"] = now
