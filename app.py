@@ -79,9 +79,152 @@ with st.expander("🔧 Google Sheets connectivity test"):
             st.error(f"Sheets error: {e}")
             st.caption("Hints: Did you share the Sheet with your service account as Editor? Are Sheets/Drive APIs enabled? Is the JSON in secrets with \\n in the private_key?")
 
-# -------------------------------
+# ===============================
+# GOOGLE SHEETS: TABLES HELPERS
+# ===============================
+
+USERS_SHEET = "Users"
+AUTH_EVENTS_SHEET = "Auth_Events"
+
+def ensure_tables():
+    sh = open_sheet()
+
+    # Users table: 1 row per user
+    try:
+        sh.worksheet(USERS_SHEET)
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(USERS_SHEET, rows=2000, cols=30)
+        ws.append_row([
+            "user_id","email","username","created_at","last_login",
+            # persisted profile fields
+            "age","monthly_income","monthly_expenses","monthly_savings",
+            "monthly_debt","total_investments","net_worth","emergency_fund",
+            "last_FHI"
+        ])
+
+    # Auth events log: append-only
+    try:
+        sh.worksheet(AUTH_EVENTS_SHEET)
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(AUTH_EVENTS_SHEET, rows=5000, cols=10)
+        ws.append_row(["ts","event","user_id","email","username","note"])
+
+@st.cache_data(show_spinner=False)
+def _get_users_sheet_values():
+    """Cached read to avoid frequent API calls; invalidated when we write."""
+    sh = open_sheet()
+    ws = sh.worksheet(USERS_SHEET)
+    return ws.get_all_records()
+
+def _invalidate_users_cache():
+    _get_users_sheet_values.clear()
+
+def log_auth_event(event: str, user: dict, note: str = ""):
+    try:
+        sh = open_sheet()
+        ws = sh.worksheet(AUTH_EVENTS_SHEET)
+        ws.append_row([
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            event,
+            user.get("id"),
+            user.get("email"),
+            (user.get("user_metadata") or {}).get("username"),
+            note
+        ], value_input_option="USER_ENTERED")
+    except Exception as e:
+        st.warning(f"Auth log error: {e}")
+
+def upsert_user_row(user: dict, payload: dict | None = None):
+    """
+    Create or update the Users row.
+    `payload` can contain persisted profile fields (age, income, etc., last_FHI).
+    """
+    ensure_tables()
+    payload = payload or {}
+    try:
+        sh = open_sheet()
+        ws = sh.worksheet(USERS_SHEET)
+
+        # Find by user_id
+        values = ws.get_all_values()
+        if not values:
+            # Shouldn't happen because ensure_tables() adds headers, but just in case:
+            values = [[
+                "user_id","email","username","created_at","last_login",
+                "age","monthly_income","monthly_expenses","monthly_savings",
+                "monthly_debt","total_investments","net_worth","emergency_fund",
+                "last_FHI"
+            ]]
+        header = values[0]
+        rows = values[1:]
+        uid_idx = header.index("user_id") if "user_id" in header else None
+
+        found_row_idx = None
+        for i, row in enumerate(rows, start=2):  # 1-based header, data starts row 2
+            if uid_idx is not None and len(row) > uid_idx and row[uid_idx] == user.get("id"):
+                found_row_idx = i
+                break
+
+        # Build row dict from header
+        base = {
+            "user_id": user.get("id"),
+            "email": user.get("email"),
+            "username": (user.get("user_metadata") or {}).get("username"),
+        }
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if found_row_idx:
+            update_map = {"last_login": now}
+            update_map.update(payload)
+            data = []
+            for k, v in update_map.items():
+                if k in header:
+                    r = found_row_idx
+                    c = header.index(k) + 1
+                    # A1 address -> e.g., "C5"
+                    col_letter = gspread.utils.rowcol_to_a1(r, c)
+                    data.append({'range': f'{USERS_SHEET}!{col_letter}', 'values': [[v]]})
+            if data:
+                ws.batch_update(data, value_input_option="USER_ENTERED")
+        else:
+            # new row with created_at + last_login
+            base["created_at"] = now
+            base["last_login"] = now
+            base.update({
+                "age": payload.get("age", ""),
+                "monthly_income": payload.get("monthly_income", ""),
+                "monthly_expenses": payload.get("monthly_expenses", ""),
+                "monthly_savings": payload.get("monthly_savings", ""),
+                "monthly_debt": payload.get("monthly_debt", ""),
+                "total_investments": payload.get("total_investments", ""),
+                "net_worth": payload.get("net_worth", ""),
+                "emergency_fund": payload.get("emergency_fund", ""),
+                "last_FHI": payload.get("last_FHI", ""),
+            })
+            row = [base.get(col, "") for col in header]
+            ws.append_row(row, value_input_option="USER_ENTERED")
+
+        _invalidate_users_cache()
+    except Exception as e:
+        st.warning(f"Users upsert error: {e}")
+
+def load_user_profile_from_sheet(user_id: str) -> dict | None:
+    """Return a dict of persisted profile fields for this user, or None."""
+    try:
+        rows = _get_users_sheet_values()  # cached
+        for r in rows:
+            if r.get("user_id") == user_id:
+                # Only keep the fields we care about
+                keep = ["age","monthly_income","monthly_expenses","monthly_savings",
+                        "monthly_debt","total_investments","net_worth","emergency_fund","last_FHI"]
+                return {k: r.get(k) for k in keep}
+    except Exception as e:
+        st.warning(f"Profile load error: {e}")
+    return None
+
+
+# ===============================
 # AUTH: Supabase helpers
-# -------------------------------
+# ===============================
 @st.cache_resource
 def init_supabase():
     url = st.secrets.get("SUPABASE_URL") or os.environ.get("SUPABASE_URL")
@@ -95,11 +238,6 @@ def init_supabase():
             "Add them to Streamlit secrets (or env vars) and restart."
         )
     return create_client(url, key)
-
-def debug_secrets_presence():
-    present = [k for k in ("SUPABASE_URL","SUPABASE_ANON_KEY") if k in st.secrets]
-    missing = [k for k in ("SUPABASE_URL","SUPABASE_ANON_KEY") if k not in st.secrets]
-    st.caption(f"Supabase secrets present: {present} • missing: {missing}")
 
 def init_auth_state():
     if "auth" not in st.session_state:
@@ -149,7 +287,12 @@ def render_auth_panel():
                     "password": password,
                     "options": {"data": {"username": username}}
                 })
+                # inside render_auth_panel() after successful SIGN UP:
                 if resp.user:
+                    u = resp.user.model_dump()
+                    log_auth_event("signup", u)
+                    # also create a Users row immediately
+                    upsert_user_row(u, payload={})
                     st.success("Account created! Check your email to verify (if enabled), then log in.")
                 else:
                     st.warning("Sign-up initiated. Check your email.")
@@ -165,9 +308,39 @@ def render_auth_panel():
             try:
                 resp = supabase.auth.sign_in_with_password({"email": email_l, "password": password_l})
                 if resp.session and resp.user:
-                    set_user_session(resp.user.model_dump(), resp.session.access_token)
-                    st.success("Logged in!")
+                    u = resp.user.model_dump()
+                    set_user_session(u, resp.session.access_token)
+                    log_auth_event("login", u)
+                    # Try to load previously saved profile
+                    saved = load_user_profile_from_sheet(u["id"])
+                    if saved:
+                        # Coerce numbers safely
+                        def _num(x): 
+                            try: return float(x)
+                            except: return 0.0
+                        if saved.get("age"): st.session_state["persona_defaults"]["age"] = int(float(saved["age"]))
+                        for k_src, k_dst in [
+                            ("monthly_income","monthly_income"),
+                            ("monthly_expenses","monthly_expenses"),
+                            ("monthly_savings","current_savings"),
+                            ("monthly_debt","monthly_debt"),
+                            ("total_investments","total_investments"),
+                            ("net_worth","net_worth"),
+                            ("emergency_fund","emergency_fund"),
+                        ]:
+                            if saved.get(k_src) not in (None, ""):
+                                st.session_state[k_dst] = _num(saved[k_src])
+                                st.session_state.persona_defaults[k_src] = _num(saved[k_src])
+                        if saved.get("last_FHI"):
+                            try:
+                                st.session_state["FHI"] = float(saved["last_FHI"])
+                            except:
+                                pass
+                        st.toast("Loaded your saved profile from Google Sheet ✅", icon="✅")
+                    else:
+                        st.info("No saved profile yet. Calculate your FHI then click ‘Save profile’.")
                     st.rerun()
+
                 else:
                     st.error("Login failed.")
             except Exception as e:
@@ -556,9 +729,6 @@ def apply_persona(preset_name):
 # ===============================
 # CONSENT, PRIVACY & STORAGE HELPERS
 # ===============================
-import hashlib
-from datetime import datetime
-
 def init_privacy_state():
     if "consent_given" not in st.session_state:
         st.session_state.consent_given = False
@@ -824,6 +994,10 @@ st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_allow_html=True)
 
 # Require consent before proceeding
 render_consent_gate()
+try:
+    ensure_tables()
+except Exception as e:
+    st.warning(f"Could not ensure Sheets tables yet: {e}")
 render_auth_panel()
 
 if AI_AVAILABLE:
@@ -832,9 +1006,9 @@ else:
     st.warning("🤖 FYNyx AI is in basic mode. Install google-generativeai for full AI features.")
 
 tab_calc, tab_goals = st.tabs(["Financial Health Calculator", "Goal Tracker"])
-# ===============================
+# ===================================
 # TAB 1: FINANCIAL HEALTH CALCULATOR
-# ===============================
+# ===================================
 with tab_calc:
         with st.container(border=True):
             st.subheader("⚡ Quick Start: Choose a Persona (optional)")
@@ -939,6 +1113,28 @@ with tab_calc:
                 FHI, components = calculate_fhi(age, monthly_income, monthly_expenses, monthly_savings,
                                                 monthly_debt, total_investments, net_worth, emergency_fund)
                 FHI_rounded = round(FHI, 2)
+
+                # --- AUTO-SAVE user profile if logged in (no button needed) ---
+                if st.session_state.get("auth_method") == "email" and st.session_state.get("user_id"):
+                    user_stub = {
+                        "id": st.session_state["user_id"],
+                        "email": st.session_state.get("email"),
+                        "user_metadata": {"username": st.session_state.get("display_name")}
+                    }
+                    upsert_user_row(user_stub, payload={
+                        "age": age,
+                        "monthly_income": monthly_income,
+                        "monthly_expenses": monthly_expenses,
+                        "monthly_savings": monthly_savings,
+                        "monthly_debt": monthly_debt,
+                        "total_investments": total_investments,
+                        "net_worth": net_worth,
+                        "emergency_fund": emergency_fund,
+                        "last_FHI": FHI_rounded
+                    })
+                    # optional: lightweight toast + event log
+                    st.toast("Autosaved profile to Google Sheet ✅", icon="✅")
+                    log_auth_event("profile_autosaved", user_stub, note="Saved after calculation")
                 
                 # --- ADD: Save to Google Sheet (respects your consent gate) ---
                 if st.session_state.consent_given:
@@ -1036,7 +1232,7 @@ with tab_calc:
                 with col3:
                     st.metric("Your Emergency Fund", f"{components['Emergency Fund']:.0f}%",
                               f"{components['Emergency Fund'] - peer_data['Emergency Fund']:+.0f}% vs peers")
-    
+                
                 if st.button("📄 Generate Report"):
                     report = generate_text_report(FHI_rounded, components, {
                         "age": age,
