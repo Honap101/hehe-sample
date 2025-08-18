@@ -208,18 +208,23 @@ def upsert_user_row(user: dict, payload: dict | None = None):
         st.warning(f"Users upsert error: {e}")
 
 def load_user_profile_from_sheet(user_id: str) -> dict | None:
-    """Return a dict of persisted profile fields for this user, or None."""
     try:
-        rows = _get_users_sheet_values()  # cached
+        rows = _get_users_sheet_values()
         for r in rows:
             if r.get("user_id") == user_id:
-                # Only keep the fields we care about
-                keep = ["age","monthly_income","monthly_expenses","monthly_savings",
-                        "monthly_debt","total_investments","net_worth","emergency_fund","last_FHI"]
+                keep = [
+                    "age","monthly_income","monthly_expenses","monthly_savings",
+                    "monthly_debt","total_investments","net_worth","emergency_fund",
+                    "last_FHI",
+                    # add consents & metadata
+                    "consent_processing","consent_storage","consent_ai","analytics_opt_in",
+                    "consent_version","consent_ts"
+                ]
                 return {k: r.get(k) for k in keep}
     except Exception as e:
         st.warning(f"Profile load error: {e}")
     return None
+
 
 
 # ===============================
@@ -758,18 +763,24 @@ def apply_persona(preset_name):
 CONSENT_VERSION = "v1"
 
 def init_privacy_state():
-    if "consent_processing" not in st.session_state:
+    if "consent_processing" not in st.session_state:   # required to use calculator
         st.session_state.consent_processing = False
-    if "consent_storage" not in st.session_state:
+    if "consent_storage" not in st.session_state:      # save profile & logs to Sheets
         st.session_state.consent_storage = False
-    if "consent_ai" not in st.session_state:
+    if "consent_ai" not in st.session_state:           # send chat to AI provider
         st.session_state.consent_ai = False
+
+    if "retention_mode" not in st.session_state:       # 'session' or 'ephemeral'
+        st.session_state.retention_mode = "session"
     if "analytics_opt_in" not in st.session_state:
         st.session_state.analytics_opt_in = False
+
+    # legacy flag (only if you still want it for compatibility)
+    if "consent_given" not in st.session_state:
+        st.session_state.consent_given = False
     if "consent_ts" not in st.session_state:
         st.session_state.consent_ts = None
-    if "retention_mode" not in st.session_state:
-        st.session_state.retention_mode = "session"
+
         
 def save_user_consents(user_id_email_meta):
     user_stub = {
@@ -1036,7 +1047,8 @@ def render_floating_chat(ai_available, model):
 
         # Footer: input + actions
         st.markdown("<div class='fynyx-chat-footer'>", unsafe_allow_html=True)
-        form_disabled = not st.session_state.consent_given
+        form_disabled = not (st.session_state.get("consent_processing", False) and
+                             st.session_state.get("consent_ai", False))
         with st.form(key="fyn_chat_form", clear_on_submit=True):
             q = st.text_input("Ask FYNyx", value="", placeholder="e.g., How can I build my emergency fund?", disabled=form_disabled)
             submitted = st.form_submit_button("Send", disabled=form_disabled)
@@ -1051,19 +1063,22 @@ def render_floating_chat(ai_available, model):
             }
 
             use_ai = st.session_state.get("consent_ai", False)
-            if use_ai and ai_available and model:
-                response = get_ai_response(q, fhi_context, model)
-            else:
-                response = get_fallback_response(q, fhi_context)
-
-
-            chat_entry = {
-                'question': q.strip(),
-                'response': response,
-                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                'fhi_context': fhi_context,
-                'was_ai_response': ai_available
-            }
+            if submitted and q.strip():
+                # ...
+                if use_ai and ai_available and model:
+                    response = get_ai_response(q, fhi_context, model)
+                    was_ai = True
+                else:
+                    response = get_fallback_response(q, fhi_context)
+                    was_ai = False
+            
+                chat_entry = {
+                    "question": q.strip(),
+                    "response": response,
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "fhi_context": fhi_context,
+                    "was_ai_response": was_ai,
+                }
             st.session_state.chat_history.append(chat_entry)
             prune_chat_history()
             st.rerun()  # update panel immediately
@@ -1240,10 +1255,16 @@ with tab_calc:
                     try:
                         ident = get_user_identity()
                         ws_name = worksheet_for(ident)
-                        append_row(ws_name, [ ... ])
+                        append_row(ws_name, [
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            ident["auth_method"], ident["user_id"], ident["email"], ident["display_name"],
+                            age, monthly_income, monthly_expenses, monthly_savings, monthly_debt,
+                            total_investments, net_worth, emergency_fund, FHI_rounded
+                        ])
                         st.toast("💾 Saved to Google Sheet", icon="✅")
                     except Exception as e:
                         st.warning(f"Could not log to Google Sheet: {e}")
+
 
 
     
