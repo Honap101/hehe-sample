@@ -1124,12 +1124,10 @@ except Exception as e:
 
 render_auth_panel()
 
-# Add near the header (before calling render_consent_card)
 if st.button("⚙️ Privacy & consent settings"):
     st.session_state.show_privacy = True
     st.rerun()
 
-# Show consent card if user hasn’t saved yet, OR if they explicitly opened it
 if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_processing", False):
     render_consent_card()
 
