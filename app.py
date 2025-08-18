@@ -868,17 +868,18 @@ def forget_me_ui():
             if to_delete:
                 ws.delete_rows(to_delete)
                 st.success("Your saved profile has been deleted.")
+                try:
+                    _invalidate_users_cache()
+                except: 
+                    pass
+                for k in ["persona_defaults","FHI","monthly_income","monthly_expenses","current_savings","components"]:
+                    st.session_state.pop(k, None)
             else:
                 st.info("No saved profile found.")
         except Exception as e:
             st.warning(f"Delete failed: {e}")
             
-try:
-    _invalidate_users_cache()
-except: 
-    pass
-for k in ["persona_defaults","FHI","monthly_income","monthly_expenses","current_savings","components"]:
-    st.session_state.pop(k, None)
+
 
 def basic_mode_badge(ai_available: bool) -> str:
     return ("<span style='padding:2px 8px;border-radius:9999px;background:#e2fee2;color:#065f46;font-weight:600;font-size:12px;'>"
