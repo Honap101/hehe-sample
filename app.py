@@ -10,69 +10,6 @@ import os
 
 st.set_page_config(page_title="Fynstra", page_icon="⌧", layout="wide")
 
-st.markdown("""
-<style>
-  /* Page width tweaks */
-  .gate-wrap { max-width: 980px; margin: 0 auto; }
-
-  /* Hero */
-  .gate-hero {
-    padding: 18px 0 6px 0;
-  }
-  .gate-eyebrow {
-    font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
-    color: #64748b; font-weight: 700;
-  }
-  .gate-title {
-    font-size: 34px; line-height: 1.15; margin: 6px 0 4px 0; font-weight: 800;
-  }
-  .gate-sub {
-    color: #475569; margin-bottom: 18px;
-  }
-
-  /* 3 option cards */
-  .option-card {
-    border: 1px solid #e5e7eb; border-radius: 14px; padding: 18px;
-    background: #fff; box-shadow: 0 6px 20px rgba(2,6,23,.06);
-    transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
-    height: 100%;
-  }
-  .option-card:hover {
-    transform: translateY(-2px);
-    border-color: #cbd5e1;
-    box-shadow: 0 10px 28px rgba(2,6,23,.08);
-  }
-  .card-icon {
-    font-size: 22px; line-height: 1; width: 36px; height: 36px;
-    display: inline-flex; align-items: center; justify-content: center;
-    border-radius: 10px; background: #f1f5f9; margin-bottom: 10px;
-  }
-  .card-title { font-weight: 700; margin: 4px 0; font-size: 16px; }
-  .card-desc  { color:#475569; font-size: 13px; min-height: 38px; }
-
-  /* Make only the buttons inside gate look premium */
-  .option-card .stButton>button {
-    width: 100%;
-    border-radius: 12px;
-    padding: 10px 14px;
-    font-weight: 700;
-    border: 1px solid #0f172a10;
-    box-shadow: 0 6px 16px rgba(2,6,23,.06);
-    transition: transform .06s ease, box-shadow .12s ease, background .12s ease;
-  }
-  .option-card .stButton>button:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 10px 20px rgba(2,6,23,.10);
-  }
-  .btn-primary   { background: #0f172a; color:#fff; }
-  .btn-outline   { background: #ffffff; }
-  .btn-secondary { background: #111827; color:#fff; opacity:.92; }
-
-  /* Fine print */
-  .gate-fine { color:#64748b; font-size:12px; margin-top: 8px; }
-</style>
-""", unsafe_allow_html=True)
-
 # ===============================
 # GOOGLE SHEETS HELPERS
 # ===============================
@@ -289,6 +226,7 @@ def load_user_profile_from_sheet(user_id: str) -> dict | None:
     return None
 
 
+
 # ===============================
 # AUTH: Supabase helpers
 # ===============================
@@ -325,6 +263,68 @@ def sign_out():
     for k in ["auth_method","user_id","email","display_name"]:
         st.session_state.pop(k, None)
 
+def set_guest_identity():
+    # minimal guest identity
+    st.session_state["auth_method"] = "guest"
+    st.session_state["user_id"] = _anon_id()
+    st.session_state["email"] = None
+    st.session_state["display_name"] = "Guest"
+
+def require_entry_gate():
+    """Block the app until the user chooses login, signup, or guest."""
+    init_auth_state()  # you already have this
+
+    # If already logged in via Supabase, let them through
+    if st.session_state.auth.get("user"):
+        st.session_state["entry_mode"] = "auth"
+        return
+
+    # Initialize the gate state
+    if "entry_mode" not in st.session_state:
+        st.session_state.entry_mode = None
+
+    # If no choice yet, show the gate and stop the app
+    if st.session_state.entry_mode is None:
+        st.title("👋 Welcome to Fynstra")
+        st.caption("Please choose how you want to continue:")
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("🔐 Log in", use_container_width=True):
+                st.session_state.entry_mode = "auth_login"
+                st.rerun()
+        with col2:
+            if st.button("🆕 Sign up", use_container_width=True):
+                st.session_state.entry_mode = "auth_signup"
+                st.rerun()
+        with col3:
+            if st.button("🚶 Continue as guest", type="secondary", use_container_width=True):
+                st.session_state.entry_mode = "guest"
+                set_guest_identity()
+                st.rerun()
+
+        st.stop()
+
+    # If they chose auth but haven't logged in yet, show your auth panel only
+    if st.session_state.entry_mode in ("auth_login", "auth_signup", "auth"):
+        # Optional: header to make it clear they’re at the gate
+        st.subheader("Account access")
+        render_auth_panel()  # your existing function shows Sign up / Log in
+
+        # Provide an escape to guest
+        st.divider()
+        if st.button("← Continue as guest instead"):
+            st.session_state.entry_mode = "guest"
+            set_guest_identity()
+            st.rerun()
+
+        # Block dashboard until they log in or choose guest
+        st.stop()
+
+    # If guest chosen, proceed (identity already set)
+    if st.session_state.entry_mode == "guest":
+        return
+
 def ensure_calc_keys(pdft):
     st.session_state.setdefault("age", int(pdft.get("age", 25)))
     st.session_state.setdefault("monthly_income", float(pdft.get("monthly_income", 0.0)))
@@ -335,90 +335,6 @@ def ensure_calc_keys(pdft):
     st.session_state.setdefault("net_worth", float(pdft.get("net_worth", 0.0)))
     st.session_state.setdefault("emergency_fund", float(pdft.get("emergency_fund", 0.0)))
 
-def set_guest_identity():
-    st.session_state["auth_method"] = "guest"
-    st.session_state["user_id"] = _anon_id()
-    st.session_state["email"] = None
-    st.session_state["display_name"] = "Guest"
-
-def require_entry_gate():
-    """Block the app until the user chooses login, signup, or guest."""
-    init_auth_state()
-
-    # Already authenticated via Supabase? let through
-    if st.session_state.auth.get("user"):
-        st.session_state["entry_mode"] = "auth"
-        return
-
-    # Initialize gate state
-    st.session_state.setdefault("entry_mode", None)
-
-    # If no choice yet, show the gate and stop
-    if st.session_state.entry_mode is None:
-        with st.container():
-            st.markdown("<div class='gate-wrap'>", unsafe_allow_html=True)
-
-            # HERO
-            st.markdown("""
-                <div class="gate-hero">
-                  <div class="gate-eyebrow">Welcome</div>
-                  <div class="gate-title">👋 Welcome to Fynstra</div>
-                  <div class="gate-sub">Choose how you want to continue. You can switch to a full account later.</div>
-                </div>
-            """, unsafe_allow_html=True)
-
-            # CARDS
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                with st.container(border=False):
-                    st.markdown('<div class="option-card">', unsafe_allow_html=True)
-                    st.markdown('<div class="card-icon">🔐</div>', unsafe_allow_html=True)
-                    st.markdown('<div class="card-title">Log in</div>', unsafe_allow_html=True)
-                    st.markdown('<div class="card-desc">Access your saved profile and history.</div>', unsafe_allow_html=True)
-                    if st.button("Log in", key="gate_login_btn"):
-                        st.session_state.entry_mode = "auth_login"; st.rerun()
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-            with c2:
-                with st.container(border=False):
-                    st.markdown('<div class="option-card">', unsafe_allow_html=True)
-                    st.markdown('<div class="card-icon">🆕</div>', unsafe_allow_html=True)
-                    st.markdown('<div class="card-title">Sign up</div>', unsafe_allow_html=True)
-                    st.markdown('<div class="card-desc">Create an account to sync across devices.</div>', unsafe_allow_html=True)
-                    if st.button("Sign up", key="gate_signup_btn"):
-                        st.session_state.entry_mode = "auth_signup"; st.rerun()
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-            with c3:
-                with st.container(border=False):
-                    st.markdown('<div class="option-card">', unsafe_allow_html=True)
-                    st.markdown('<div class="card-icon">🚶</div>', unsafe_allow_html=True)
-                    st.markdown('<div class="card-title">Continue as guest</div>', unsafe_allow_html=True)
-                    st.markdown('<div class="card-desc">Try Fynstra without saving to your account.</div>', unsafe_allow_html=True)
-                    if st.button("Continue as guest", key="gate_guest_btn"):
-                        st.session_state.entry_mode = "guest"; set_guest_identity(); st.rerun()
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-            st.markdown(
-                "<div class='gate-fine'>By continuing you agree to basic processing to compute your FHI. You can adjust privacy in Settings.</div>",
-                unsafe_allow_html=True
-            )
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        st.stop()
-
-    # If they chose auth but haven't logged in yet, show your auth panel only
-    if st.session_state.entry_mode in ("auth_login", "auth_signup", "auth"):
-        st.subheader("Account access")
-        render_auth_panel()
-        st.divider()
-        if st.button("← Continue as guest instead", key="gate_to_guest"):
-            st.session_state.entry_mode = "guest"; set_guest_identity(); st.rerun()
-        st.stop()
-
-    # If guest chosen, proceed
-    if st.session_state.entry_mode == "guest":
-        return
 
 def render_auth_panel():
     supabase = init_supabase()
@@ -1223,17 +1139,11 @@ def render_floating_chat(ai_available, model):
         st.markdown("<div class='fynyx-chat-footer'>", unsafe_allow_html=True)
         form_disabled = not (st.session_state.get("consent_processing", False) and
                              st.session_state.get("consent_ai", False))
-        if form_disabled:
-            st.caption("Enable chat in Privacy settings.")
-            if st.button("Open Privacy settings"):
-                st.session_state.show_privacy = True
-                st.rerun()
         
-        with st.form(key="fyn_chat_form", clear_on_submit=False):
-            q = st.text_input("Ask FYNyx", key="chat_input",
-                              placeholder="e.g., How can I build my emergency fund?",
-                              disabled=form_disabled)
+        with st.form(key="fyn_chat_form", clear_on_submit=True):
+            q = st.text_input("Ask FYNyx", value="", placeholder="e.g., How can I build my emergency fund?", disabled=form_disabled)
             submitted = st.form_submit_button("Send", disabled=form_disabled)
+        st.markdown("</div>", unsafe_allow_html=True)
 
         if submitted and q.strip():
             fhi_context = {
@@ -1274,13 +1184,12 @@ initialize_session_state()
 init_persona_state()
 init_privacy_state()
 AI_AVAILABLE, model = initialize_ai()
-
 require_entry_gate()
 
-# Optional: show privacy button
 if st.button("⚙️ Privacy & consent settings"):
     st.session_state.show_privacy = True
     st.rerun()
+
 if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_processing", False):
     render_consent_card()
 
@@ -1341,36 +1250,58 @@ with tab_calc:
             pdft = st.session_state.persona_defaults  # shorthand
             ensure_calc_keys(pdft)
             
-            col1, col2 = st.columns(2)            
+            col1, col2 = st.columns(2)
             with col1:
-                st.number_input("Your Age", min_value=18, max_value=100, step=1,
-                                key="age", help="Your current age in years.")
-                st.number_input("Monthly Living Expenses (₱)", min_value=0.0, step=50.0,
-                                key="monthly_expenses", help="E.g., rent, food, transportation, utilities.")
-                st.number_input("Monthly Savings (₱)", min_value=0.0, step=50.0,
-                                key="current_savings", help="The amount saved monthly.")
-                st.number_input("Emergency Fund Amount (₱)", min_value=0.0, step=500.0,
-                                key="emergency_fund", help="For medical costs, job loss, or other emergencies.")
+                age = st.number_input(
+                    "Your Age",
+                    min_value=18, max_value=100, step=1,
+                    value=int(pdft.get("age", 25)),
+                    help="Your current age in years."
+                )
+                monthly_expenses = st.number_input(
+                    "Monthly Living Expenses (₱)",
+                    min_value=0.0, step=50.0,
+                    value=float(pdft.get("monthly_expenses", 0.0)),
+                    help="E.g., rent, food, transportation, utilities."
+                )
+                monthly_savings = st.number_input(
+                    "Monthly Savings (₱)",
+                    min_value=0.0, step=50.0,
+                    value=float(pdft.get("monthly_savings", 0.0)),
+                    help="The amount saved monthly."
+                )
+                emergency_fund = st.number_input(
+                    "Emergency Fund Amount (₱)",
+                    min_value=0.0, step=500.0,
+                    value=float(pdft.get("emergency_fund", 0.0)),
+                    help="For medical costs, job loss, or other emergencies."
+                )
             
             with col2:
-                st.number_input("Monthly Gross Income (₱)", min_value=0.0, step=100.0,
-                                key="monthly_income", help="Income before taxes and deductions.")
-                st.number_input("Monthly Debt Payments (₱)", min_value=0.0, step=50.0,
-                                key="monthly_debt", help="Loans, credit cards, etc.")
-                st.number_input("Total Investments (₱)", min_value=0.0, step=500.0,
-                                key="total_investments", help="Stocks, bonds, retirement accounts.")
-                st.number_input("Net Worth (₱)", min_value=0.0, step=500.0,
-                                key="net_worth", help="Total assets minus total liabilities.")
-
-            age              = st.session_state["age"]
-            monthly_income   = st.session_state["monthly_income"]
-            monthly_expenses = st.session_state["monthly_expenses"]
-            monthly_savings  = st.session_state["current_savings"]
-            monthly_debt     = st.session_state["monthly_debt"]
-            total_investments= st.session_state["total_investments"]
-            net_worth        = st.session_state["net_worth"]
-            emergency_fund   = st.session_state["emergency_fund"]
-
+                monthly_income = st.number_input(
+                    "Monthly Gross Income (₱)",
+                    min_value=0.0, step=100.0,
+                    value=float(pdft.get("monthly_income", 0.0)),
+                    help="Income before taxes and deductions."
+                )
+                monthly_debt = st.number_input(
+                    "Monthly Debt Payments (₱)",
+                    min_value=0.0, step=50.0,
+                    value=float(pdft.get("monthly_debt", 0.0)),
+                    help="Loans, credit cards, etc."
+                )
+                total_investments = st.number_input(
+                    "Total Investments (₱)",
+                    min_value=0.0, step=500.0,
+                    value=float(pdft.get("total_investments", 0.0)),
+                    help="Stocks, bonds, retirement accounts."
+                )
+                net_worth = st.number_input(
+                    "Net Worth (₱)",
+                    min_value=0.0, step=500.0,
+                    value=float(pdft.get("net_worth", 0.0)),
+                    help="Total assets minus total liabilities."
+                )
     
         if st.button("Check My Financial Health", type="primary"):
             errors, warnings_ = validate_financial_inputs(monthly_income, monthly_expenses, monthly_debt, monthly_savings)
