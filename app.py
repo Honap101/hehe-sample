@@ -685,7 +685,7 @@ def initialize_ai():
         return False, None
 
 def get_ai_response(user_question, fhi_context, model):
-    """Get response from Gemini AI"""
+    """Get response from Gemini AI (no artificial length limit)."""
     try:
         fhi_score = fhi_context.get('FHI', 'Not calculated')
         income = fhi_context.get('income', 0)
@@ -693,42 +693,35 @@ def get_ai_response(user_question, fhi_context, model):
         savings = fhi_context.get('savings', 0)
 
         prompt = f"""
-        You are FYNyx, an AI financial advisor specifically designed for Filipino users. You provide practical, culturally-aware financial advice.
+        You are FYNyx, an AI financial advisor for Filipino users. Provide thorough, actionable,
+        culturally-aware advice in Philippine context (₱, SSS, Pag-IBIG/MP2, GSIS, BPI/BDO, PERA, RTBs, etc.).
 
-        IMPORTANT CONTEXT:
-        - User is Filipino, use Philippine financial context
-        - Mention Philippine financial products when relevant (SSS, Pag-IBIG, GSIS, BPI, BDO, etc.)
-        - Use Philippine Peso (₱) in examples
-        - Consider Philippine economic conditions
-        - If the question is not financial, politely redirect to financial topics
-
-        USER'S FINANCIAL PROFILE:
+        CONTEXT SNAPSHOT
         - FHI Score: {fhi_score}/100
         - Monthly Income: ₱{income:,.0f}
         - Monthly Expenses: ₱{expenses:,.0f}
         - Monthly Savings: ₱{savings:,.0f}
 
-        USER'S QUESTION: {user_question}
+        USER'S REQUEST
+        {user_question}
 
-        INSTRUCTIONS:
-        - Provide specific, actionable advice
-        - Keep response under 150 words
-        - Use friendly, encouraging tone
-        - Include specific numbers/percentages when helpful
-        - Mention relevant Philippine financial institutions or products if applicable
-        - If FHI score is low (<50), prioritize emergency fund and debt reduction
-        - If FHI score is medium (50-70), focus on investment and optimization
-        - If FHI score is high (>70), discuss advanced strategies
-
-        Start your response with a brief acknowledgment of their question, then provide clear advice.
+        INSTRUCTIONS
+        - Do NOT limit the length of your response—be as detailed as is genuinely helpful.
+        - Use headings, bullets, and concrete peso amounts/percentages.
+        - If FHI <50, emphasize liquidity and debt; 50–70 optimize; >70 advanced strategies.
+        - Offer step-by-step actions, quick wins, and longer-term moves.
+        - If you need to assume anything, state the assumption briefly.
         """
 
-        response = model.generate_content(prompt)
+        # allow long outputs
+        generation_cfg = {"max_output_tokens": 4096, "temperature": 0.7}
+        response = model.generate_content(prompt, generation_config=generation_cfg)
         return response.text
 
     except Exception as e:
         st.error(f"AI temporarily unavailable: {str(e)}")
         return get_fallback_response(user_question, fhi_context)
+
 
 def get_fallback_response(user_question, fhi_context):
     """Fallback responses when AI is unavailable"""
@@ -1742,6 +1735,69 @@ def render_results_and_report_ui():
             use_container_width=True,
             key="dl_pdf",
         )
+        render_ai_recommendation_block(model)
+
+
+def render_ai_recommendation_block(model):
+    """Big, unlimited AI plan generation using current inputs & component scores."""
+    if "FHI" not in st.session_state or "components" not in st.session_state:
+        return
+
+    st.subheader("🤖 Personalized AI Recommendation")
+    if not consent_ok():
+        st.info("Enable **Allow sending my questions/context to the AI provider** in Privacy & Consent to use this.")
+        return
+
+    if st.button("Generate AI Recommendation", key="ai_reco_btn"):
+        inputs = st.session_state.get("inputs_for_pdf", {}) or {}
+        comps = st.session_state.get("components", {}) or {}
+
+        # Build a rich request for FYNyx (we’ll still pass fhi_context separately)
+        comp_lines = "\n".join([f"- {k}: {float(v):.1f}/100" for k, v in comps.items()])
+        user_question = f"""
+        Please write a comprehensive, step-by-step plan to improve my financial health.
+        My details:
+        - Age: {inputs.get('age','N/A')}
+        - Monthly Income: ₱{inputs.get('income',0):,.0f}
+        - Monthly Expenses: ₱{inputs.get('expenses',0):,.0f}
+        - Monthly Savings: ₱{inputs.get('savings',0):,.0f}
+        - Monthly Debt: ₱{inputs.get('debt',0):,.0f}
+        - Total Investments: ₱{inputs.get('investments',0):,.0f}
+        - Net Worth: ₱{inputs.get('net_worth',0):,.0f}
+        - Emergency Fund: ₱{inputs.get('emergency_fund',0):,.0f}
+
+        Component scores:
+        {comp_lines}
+
+        Include:
+        1) Prioritized actions (with peso amounts and % of income)
+        2) 30/60/90-day plan and monthly “guardrails”
+        3) Budget reallocation table (target savings %, EF months)
+        4) Philippine product ideas (Pag-IBIG MP2, RTBs/Premyo Bonds, PERA, basic index funds)
+        5) Risk notes (job stability, dependents) and KPIs to track
+        No length limit—be as detailed as needed.
+        """
+
+        fhi_context = {
+            'FHI': st.session_state.get('FHI', 0),
+            'income': inputs.get('income', 0),
+            'expenses': inputs.get('expenses', 0),
+            'savings': inputs.get('savings', 0),
+        }
+
+        # Call the same AI function (now unlimited)
+        full_plan = get_ai_response(user_question, fhi_context, model)
+
+        # show + also log to chat history for continuity
+        st.markdown(full_plan)
+        st.session_state.chat_history.append({
+            "question": "Generate a personalized financial plan",
+            "response": full_plan,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "fhi_context": fhi_context,
+            "was_ai_response": True,
+        })
+        prune_chat_history()
 
 
 # ===============================
