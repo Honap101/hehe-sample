@@ -75,22 +75,6 @@ def worksheet_for(identity: dict) -> str:
     }
     return mapping.get(identity["auth_method"], "Log_Others")
 
-with st.expander("🔧 Google Sheets connectivity test"):
-    if st.button("Ping Sheet"):
-        try:
-            sh = open_sheet()
-            st.success(f"Connected to: {sh.title}")
-            try:
-                ws = sh.worksheet("Log_Guests")
-            except gspread.WorksheetNotFound:
-                ws = sh.add_worksheet("Log_Guests", rows=1000, cols=30)
-                ws.append_row(["ts","note"])
-            ws.append_row([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "hello 👋"], value_input_option="USER_ENTERED")
-            st.info("Appended a test row to Log_Guests.")
-        except Exception as e:
-            st.error(f"Sheets error: {e}")
-            st.caption("Hints: Did you share the Sheet with your service account as Editor? Are Sheets/Drive APIs enabled? Is the JSON in secrets with \\n in the private_key?")
-
 def with_backoff(fn, tries: int = 4):
     """Run fn() with exponential backoff on transient errors."""
     for i in range(tries):
