@@ -908,13 +908,9 @@ def init_privacy_state():
     st.session_state.setdefault("show_privacy", False)
 
 def ensure_consent_persistence():
-    """Ensure consent choices persist across reruns for guests"""
-    if st.session_state.get("auth_method") == "guest":
-        # For guests, we need to maintain consent in session state
-        # The init_privacy_state() already handles the defaults
-        pass
-    elif st.session_state.get("auth_method") == "email":
-        # For logged-in users, try to load from sheet if not already loaded
+    """Ensure consent choices persist across reruns"""
+    if st.session_state.get("auth_method") == "email":
+        # For logged-in users, always try to load from sheet if not already loaded
         if not st.session_state.get("consent_given", False):
             user_id = st.session_state.get("user_id")
             if user_id:
@@ -926,6 +922,10 @@ def ensure_consent_persistence():
                     if saved.get("consent_ts"):
                         st.session_state["consent_ts"] = saved["consent_ts"]
                         st.session_state["consent_given"] = True
+    elif st.session_state.get("auth_method") == "guest":
+        # For guests, check if they have any consent timestamp (meaning they've saved preferences)
+        if st.session_state.get("consent_ts") and not st.session_state.get("consent_given", False):
+            st.session_state["consent_given"] = True
 
 def save_user_consents(user_id_email_meta):
     user_stub = {
@@ -968,7 +968,8 @@ def render_consent_card():
                 st.session_state.consent_given = True
                 st.session_state.show_privacy = False
         
-                if st.session_state.get("user_id"):  # only persist for signed-in users
+                # Save for logged-in users to database
+                if st.session_state.get("auth_method") == "email" and st.session_state.get("user_id"):
                     save_user_consents({
                         "id": st.session_state["user_id"],
                         "email": st.session_state.get("email"),
@@ -1253,7 +1254,7 @@ if st.button("⚙️ Privacy & consent settings"):
     st.session_state.show_privacy = True
     st.rerun()
 
-if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_processing", False):
+if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_given", False):
     render_consent_card()
 
 # Header with status badge
