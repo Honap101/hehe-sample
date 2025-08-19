@@ -18,7 +18,8 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.graphics.shapes import Drawing, Rect, String
 from reportlab.graphics.charts.barcharts import HorizontalBarChart
-
+from reportlab.graphics.widgets.markers import makeMarker
+from reportlab.graphics import renderPDF
 
 st.set_page_config(page_title="Fynstra", page_icon="⌧", layout="wide")
 
@@ -29,9 +30,6 @@ st.set_page_config(page_title="Fynstra", page_icon="⌧", layout="wide")
 @st.cache_resource
 def init_sheets_client():
     sa_info = dict(st.secrets["GOOGLE_SERVICE_ACCOUNT"])
-    if "private_key" in sa_info:
-        sa_info["private_key"] = sa_info["private_key"].replace("\\n", "\n")
-        
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
@@ -93,6 +91,10 @@ with st.expander("🔧 Google Sheets connectivity test"):
         except Exception as e:
             st.error(f"Sheets error: {e}")
             st.caption("Hints: Did you share the Sheet with your service account as Editor? Are Sheets/Drive APIs enabled? Is the JSON in secrets with \\n in the private_key?")
+
+
+SCORE_TARGET = 70
+SCORE_BANDS = [(0, 50, "salmon"), (50, 70, "gold"), (70, 100, "lightgreen")]
 
 def with_backoff(fn, tries: int = 4):
     """Run fn() with exponential backoff on transient errors."""
@@ -1260,19 +1262,9 @@ def build_fynstra_pdf(
     story.append(HRFlowable(width="100%", thickness=0.6, color=LINE, spaceBefore=8, spaceAfter=12))
     story.append(Paragraph("Profile snapshot", styles["h2"]))
 
-    # replace the rows block with this:
     rows = [
         ["Age", str(user_inputs.get("age", "N/A"))],
-    ]
-    if "income_gross" in user_inputs:
-        rows.append(["Monthly Income — Gross (₱)", f"{user_inputs.get('income_gross', 0):,.0f}"])
-    if float(user_inputs.get("income_net", 0) or 0) > 0:
-        rows.append(["Monthly Income — Take-Home (₱)", f"{user_inputs.get('income_net', 0):,.0f}"])
-    else:
-        # fallback: single income row (used for the calc)
-        rows.append(["Monthly Income (₱)", f"{user_inputs.get('income', 0):,.0f}"])
-    
-    rows += [
+        ["Monthly Income (₱)", f"{user_inputs.get('income', 0):,.0f}"],
         ["Monthly Expenses (₱)", f"{user_inputs.get('expenses', 0):,.0f}"],
         ["Monthly Savings (₱)", f"{user_inputs.get('savings', 0):,.0f}"],
         ["Monthly Debt (₱)", f"{user_inputs.get('debt', 0):,.0f}"],
@@ -1280,7 +1272,6 @@ def build_fynstra_pdf(
         ["Net Worth (₱)", f"{user_inputs.get('net_worth', 0):,.0f}"],
         ["Emergency Fund (₱)", f"{user_inputs.get('emergency_fund', 0):,.0f}"],
     ]
-
     story.append(_kv_table(rows))
     story.append(Spacer(1, 10))
 
@@ -1769,9 +1760,7 @@ def basic_mode_badge(ai_available: bool) -> str:
 
 def handle_calculation_click(
     age, monthly_income, monthly_expenses, monthly_savings,
-    monthly_debt, total_investments, net_worth, emergency_fund,
-    original_gross=None, original_net=None
-
+    monthly_debt, total_investments, net_worth, emergency_fund
 ):
     """Runs validation, computes FHI, stores everything in session_state,
     and (optionally) logs to Sheets if the user allowed storage."""
@@ -1804,9 +1793,7 @@ def handle_calculation_click(
     st.session_state["components"] = components
     st.session_state["inputs_for_pdf"] = {
         "age": age,
-        "income": monthly_income,  # the income actually used (net if provided)
-        "income_gross": original_gross if original_gross is not None else monthly_income,
-        "income_net":   original_net   if original_net   is not None else 0,
+        "income": monthly_income,
         "expenses": monthly_expenses,
         "savings": monthly_savings,
         "debt": monthly_debt,
@@ -2296,13 +2283,12 @@ with tab_calc:
                 )
             
             with col2:
-                monthly_income_net = st.number_input(
-                    "Monthly Take-Home Income (₱) — optional",
+                monthly_income = st.number_input(
+                    "Monthly Gross Income (₱)",
                     min_value=0.0, step=100.0,
-                    value=float(st.session_state.get("monthly_income_net", 0.0)),
-                    help="Pay after tax/SSS/PhilHealth/Pag-IBIG. If set, the calculator will use this."
+                    value=float(pdft.get("monthly_income", 0.0)),
+                    help="Income before taxes and deductions."
                 )
-                st.session_state["monthly_income_net"] = monthly_income_net
                 monthly_debt = st.number_input(
                     "Monthly Debt Payments (₱)",
                     min_value=0.0, step=50.0,
@@ -2321,10 +2307,7 @@ with tab_calc:
                     value=float(pdft.get("net_worth", 0.0)),
                     help="Total assets minus total liabilities."
                 )
-                
-        monthly_income_net_val = float(st.session_state.get("monthly_income_net", 0.0))
-        income_for_calc = monthly_income_net_val if monthly_income_net_val > 0 else monthly_income
-   
+    
         # Compute & persist results
         if st.button("Check My Financial Health", type="primary", key="calc"):
             handle_calculation_click(
@@ -2336,8 +2319,6 @@ with tab_calc:
                 total_investments=total_investments,
                 net_worth=net_worth,
                 emergency_fund=emergency_fund,
-                original_gross=monthly_income,
-                original_net=monthly_income_net
             )
         
         # Always render (if present in session) so results survive reruns
@@ -2420,7 +2401,7 @@ with tab_calc:
                 scen["debt"], scen["invest"], scen["networth"], scen["efund"]
             )
 
-            if st.button("💾 Save this Scenario"):
+            if st.button("💾 Save this scenario to Google Sheet"):
                 append_whatif_run(
                     name="Custom scenario",
                     base_fhi=base_fhi, new_fhi=new_fhi,
@@ -2520,35 +2501,21 @@ with tab_goals:
                     goal_months = st.number_input("Time to Goal (months)", min_value=1, max_value=120, step=1)
     
                 with col2:
-                    # Prefer the latest field the user sees/edits (live); fall back to last calc
-                    monthly_savings_live = float(
-                        st.session_state.get("monthly_savings",
-                            st.session_state.get("inputs_for_pdf", {}).get("savings", 0.0))
-                    )
-                    current_savings = float(st.session_state.get("current_savings", 0.0))
-                
-                    # Optional user override for “what should I use right now?”
-                    override = st.checkbox("Override monthly savings for this goal")
-                    if override:
-                        monthly_savings_live = st.number_input(
-                            "Monthly Savings to use (₱)",
-                            min_value=0.0, step=100.0,
-                            value=monthly_savings_live
-                        )
-                
+                    current_savings = st.session_state.get("current_savings", 0.0)
+                    monthly_savings = st.session_state.get("inputs_for_pdf", {}).get("savings", 0.0)
+    
                     if goal_amount > 0 and goal_months > 0:
                         needed_monthly = (goal_amount - current_savings) / goal_months if goal_amount > current_savings else 0
                         progress = (current_savings / goal_amount) * 100 if goal_amount > 0 else 0
-                
+    
                         st.metric("Monthly Savings Needed", f"₱{needed_monthly:,.0f}")
                         st.metric("Current Progress", f"{progress:.1f}%")
-                
-                        if monthly_savings_live >= needed_monthly:
+    
+                        if monthly_savings >= needed_monthly:
                             st.success("✅ You're on track!")
                         else:
-                            shortfall = needed_monthly - monthly_savings_live
+                            shortfall = needed_monthly - monthly_savings
                             st.warning(f"⚠️ Increase savings by ₱{shortfall:,.0f}/month")
-
 
 # ===============================
 # FOOTER
@@ -2572,4 +2539,3 @@ st.markdown(
     f"<div class='fynyx-meta' style='padding:6px 12px'>{_hint}</div>",
     unsafe_allow_html=True
 )
-
