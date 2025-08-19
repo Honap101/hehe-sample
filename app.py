@@ -1851,7 +1851,7 @@ with tab_calc:
                 )
     
         if st.button("Check My Financial Health", type="primary"):
-            # Enforce consent for processing before any computation
+            st.session_state.report_pdf = None
             consent_required_or_stop()
         
             errors, warnings_ = validate_financial_inputs(
@@ -1935,10 +1935,10 @@ with tab_calc:
             st.session_state["monthly_income"] = monthly_income
             st.session_state["monthly_expenses"] = monthly_expenses
             st.session_state["current_savings"] = monthly_savings
-            st.session_state["components"] = components
-            st.markdown("---")
+            st.session_state["components"] = components\
             
-                score_col, text_col = st.columns([1, 2])
+            st.markdown("---")
+            score_col, text_col = st.columns([1, 2])
     
                 with score_col:
                     fig = create_gauge_chart(FHI_rounded)
