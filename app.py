@@ -1638,20 +1638,127 @@ def prune_chat_history():
         st.session_state.chat_history = st.session_state.chat_history[-50:]
 
 def export_my_data_ui():
-    if not st.session_state.get("user_id"):
+    """
+    Renders an export panel with JSON or CSV (zip) downloads of *your* rows across:
+    - Users, Auth_Events, FHI_Calcs, Chat_Events, WhatIf_Runs
+    - Log_Guests / Log_Email / Log_Google / Log_Others
+    """
+    import csv, zipfile
+    from datetime import datetime
+    import io, json
+
+    ident = get_user_identity()
+    uid = ident.get("user_id")
+
+    if not uid:
+        st.info("Sign in or continue as guest to export your data.")
         return
-    if st.button("📦 Export my data"):
+
+    st.markdown("Download a copy of your data or delete your saved profile in Google Sheets.")
+
+    # Pick format
+    fmt = st.radio("Export format", ["JSON", "CSV (zip)"], horizontal=True, key="fyn_export_fmt")
+
+    # Read everything safely
+    sh = open_sheet()
+    def _get(name):
         try:
-            sh = open_sheet()
-            users = sh.worksheet(USERS_SHEET).get_all_records()
-            events = sh.worksheet(AUTH_EVENTS_SHEET).get_all_records()
-            uid = st.session_state["user_id"]
-            my_user = [r for r in users if r.get("user_id")==uid]
-            my_events = [r for r in events if r.get("user_id")==uid]
-            payload = json.dumps({"user": my_user, "events": my_events}, indent=2)
-            st.download_button("Download JSON", data=payload, file_name="fynstra_export.json")
+            return sh.worksheet(name).get_all_records()
+        except gspread.WorksheetNotFound:
+            return []
         except Exception as e:
-            st.warning(f"Export failed: {e}")
+            st.warning(f"Read error on {name}: {e}")
+            return []
+
+    candidate_sheets = [
+        USERS_SHEET, AUTH_EVENTS_SHEET, CALCS_SHEET, CHAT_EVENTS_SHEET, WHATIF_SHEET,
+        "Log_Guests", "Log_Email", "Log_Google", "Log_Others"
+    ]
+
+    # Filter rows to just this user
+    tables = {}
+    for sheet in candidate_sheets:
+        rows = _get(sheet)
+        if not rows:
+            continue
+        # Filter if user_id exists
+        if "user_id" in (rows[0].keys() if rows else []):
+            mine = [r for r in rows if str(r.get("user_id")) == str(uid)]
+        else:
+            # Fallback (shouldn't be needed, but safe)
+            mine = [r for r in rows if r.get("user_id") == uid]
+        if mine:
+            tables[sheet] = mine
+
+    # Always include a small meta header + your current consent snapshot
+    consents = st.session_state.get("__consent_snapshot") or {
+        "consent_processing": st.session_state.get("consent_processing", False),
+        "consent_storage":    st.session_state.get("consent_storage", False),
+        "consent_ai":         st.session_state.get("consent_ai", False),
+        "analytics_opt_in":   st.session_state.get("analytics_opt_in", False),
+        "retention_mode":     st.session_state.get("retention_mode", "session"),
+        "consent_ts":         st.session_state.get("consent_ts"),
+        "consent_version":    CONSENT_VERSION,
+    }
+
+    meta = {
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "app_version": APP_VERSION,
+        "fhi_formula_version": FHI_FORMULA_VERSION,
+        "identity": ident,
+        "consents": consents,
+    }
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = f"fynstra_export_{uid}_{ts}"
+
+    if fmt == "JSON":
+        payload = {"meta": meta, "tables": tables}
+        data = json.dumps(payload, indent=2).encode("utf-8")
+        st.download_button(
+            "📥 Download JSON export",
+            data=data,
+            file_name=f"{base_name}.json",
+            mime="application/json",
+            use_container_width=True,
+            key="fyn_dl_json",
+        )
+    else:
+        # Build a zip of CSVs (one CSV per table)
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            # Write meta.json
+            zf.writestr("meta.json", json.dumps(meta, indent=2))
+
+            # Helper: rows -> CSV string
+            def _to_csv(name, rows):
+                if not rows:
+                    return ""
+                # union of all keys for robust headers
+                all_keys = set()
+                for r in rows:
+                    all_keys.update(r.keys())
+                fieldnames = sorted(list(all_keys))
+                sio = io.StringIO(newline="")
+                writer = csv.DictWriter(sio, fieldnames=fieldnames)
+                writer.writeheader()
+                for r in rows:
+                    writer.writerow({k: r.get(k, "") for k in fieldnames})
+                return sio.getvalue()
+
+            for sheet_name, rows in tables.items():
+                csv_str = _to_csv(sheet_name, rows)
+                if csv_str:
+                    zf.writestr(f"{sheet_name}.csv", csv_str)
+
+        st.download_button(
+            "📦 Download CSVs (zip)",
+            data=zip_buf.getvalue(),
+            file_name=f"{base_name}.zip",
+            mime="application/zip",
+            use_container_width=True,
+            key="fyn_dl_zip",
+        )
 
 def _delete_rows_by_uid(ws, uid: str, uid_col_name: str = "user_id"):
     """Delete all rows where uid_col_name equals uid (bottom-up to keep indices valid)."""
