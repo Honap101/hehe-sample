@@ -299,60 +299,225 @@ def set_guest_identity():
     st.session_state["email"] = None
     st.session_state["display_name"] = "Guest"
 
-def require_entry_gate():
-    """Block the app until the user chooses login, signup, or guest."""
-    init_auth_state()  # you already have this
+def _entry_gate_css():
+    st.markdown("""
+    <style>
+      /* Page background & typography */
+      .fynstra-bg {
+        background: radial-gradient(1200px 600px at 20% 0%, #eef2ff 0%, transparent 60%),
+                    radial-gradient(1000px 500px at 100% 100%, #f0fdfa 0%, transparent 55%),
+                    linear-gradient(180deg, #ffffff, #ffffff);
+      }
+      .block-container { padding-top: 2rem !important; }
+      /* Center shell */
+      .gate-shell {
+        max-width: 880px;
+        margin: 10vh auto 8vh auto;
+      }
+      /* Card */
+      .gate-card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 20px;
+        padding: 40px 48px;
+        box-shadow: 0 20px 60px rgba(2,6,23,0.08); /* slate-900 @ 8% */
+      }
+      .gate-eyebrow {
+        letter-spacing: .12em;
+        font-size: .78rem;
+        font-weight: 600;
+        color: #64748b; /* slate-500 */
+        text-transform: uppercase;
+        margin-bottom: 12px;
+      }
+      .gate-title {
+        font-size: 2.1rem;
+        line-height: 1.2;
+        font-weight: 750;
+        color: #0f172a; /* slate-900 */
+        margin: 0 0 6px 0;
+      }
+      .gate-sub {
+        color: #475569; /* slate-600 */
+        font-size: 1rem;
+        margin-bottom: 28px;
+      }
+      /* Buttons: make Streamlit buttons look like pills */
+      .stButton>button {
+        border-radius: 9999px !important;
+        padding: 12px 18px !important;
+        font-weight: 650 !important;
+        border: 1px solid #e5e7eb !important;
+        transition: transform .02s ease, box-shadow .2s ease, background-color .2s ease;
+      }
+      .stButton>button:hover { box-shadow: 0 10px 26px rgba(2,6,23,0.10); }
+      .stButton>button:active { transform: translateY(1px); }
 
-    # If already logged in via Supabase, let them through
+      /* Color variants */
+      .btn-primary>button {
+        background: #2563eb !important;  /* blue-600 */
+        color: #fff !important;
+        border-color: #2563eb !important;
+      }
+      .btn-accent>button {
+        background: #16a34a !important; /* green-600 */
+        color: #fff !important;
+        border-color: #16a34a !important;
+      }
+      .btn-ghost>button {
+        background: #fff !important;
+        color: #0f172a !important;
+      }
+
+      /* Footer line under the buttons */
+      .gate-foot {
+        margin-top: 22px;
+        color: #64748b;
+        font-size: .92rem;
+      }
+      .gate-foot a { color: #334155; text-decoration: underline; }
+
+      /* Feature ticks */
+      .features {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0,1fr));
+        gap: 10px;
+        margin-top: 22px;
+      }
+      .feature {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 10px 12px;
+        font-size: .9rem;
+        color: #334155;
+      }
+
+      @media (max-width: 860px) {
+        .gate-card { padding: 28px 22px; }
+        .gate-title { font-size: 1.7rem; }
+        .features { grid-template-columns: 1fr; }
+      }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+def require_entry_gate():
+    """
+    Block the app until the user chooses login, signup, or guest.
+    Styled, centered, and competition-ready.
+    """
+    _entry_gate_css()
+    # apply soft background
+    st.markdown("<div class='fynstra-bg'></div>", unsafe_allow_html=True)
+
+    init_auth_state()
+
+    # If already logged in via Supabase, allow through
     if st.session_state.auth.get("user"):
         st.session_state["entry_mode"] = "auth"
         return
 
-    # Initialize the gate state
+    # Initialize state once
     if "entry_mode" not in st.session_state:
         st.session_state.entry_mode = None
 
-    # If no choice yet, show the gate and stop the app
+    # No choice yet → render gate and stop
     if st.session_state.entry_mode is None:
-        st.title("👋 Welcome to Fynstra")
-        st.caption("Please choose how you want to continue:")
+        with st.container():
+            st.markdown("<div class='gate-shell'>", unsafe_allow_html=True)
+            with st.container():
+                st.markdown("<div class='gate-card'>", unsafe_allow_html=True)
+                st.markdown("<div class='gate-eyebrow'>Welcome</div>", unsafe_allow_html=True)
+                st.markdown("<div class='gate-title'>Welcome to Fynstra</div>", unsafe_allow_html=True)
+                st.markdown(
+                    "<div class='gate-sub'>AI-powered financial health for the Philippine context. "
+                    "Choose how you want to continue.</div>",
+                    unsafe_allow_html=True
+                )
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if st.button("🔐 Log in", use_container_width=True):
-                st.session_state.entry_mode = "auth_login"
-                st.rerun()
-        with col2:
-            if st.button("🆕 Sign up", use_container_width=True):
-                st.session_state.entry_mode = "auth_signup"
-                st.rerun()
-        with col3:
-            if st.button("🚶 Continue as guest", type="secondary", use_container_width=True):
-                st.session_state.entry_mode = "guest"
-                set_guest_identity()
-                st.rerun()
+                # Button row (responsive via Streamlit columns)
+                c1, c2, c3 = st.columns(3, gap="large")
+                with c1:
+                    # Primary: Log in
+                    with st.container():
+                        st.markdown("<div class='btn-primary'>", unsafe_allow_html=True)
+                        if st.button("Log in", use_container_width=True, key="gate_login"):
+                            st.session_state.entry_mode = "auth_login"
+                            st.rerun()
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+                with c2:
+                    # Accent: Sign up
+                    with st.container():
+                        st.markdown("<div class='btn-accent'>", unsafe_allow_html=True)
+                        if st.button("Sign up", use_container_width=True, key="gate_signup"):
+                            st.session_state.entry_mode = "auth_signup"
+                            st.rerun()
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+                with c3:
+                    # Ghost: Guest
+                    with st.container():
+                        st.markdown("<div class='btn-ghost'>", unsafe_allow_html=True)
+                        if st.button("Continue as guest", use_container_width=True, key="gate_guest"):
+                            st.session_state.entry_mode = "guest"
+                            set_guest_identity()
+                            st.rerun()
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+                # Feature ticks (credibility + trust)
+                st.markdown("""
+                    <div class="features">
+                      <div class="feature">Privacy-first onboarding</div>
+                      <div class="feature">Local context: PH products & costs</div>
+                      <div class="feature">Explainable scoring & scenarios</div>
+                    </div>
+                """, unsafe_allow_html=True)
+
+                # Footnote
+                st.markdown(
+                    "<div class='gate-foot'>By continuing, you agree to basic processing required to run the calculator. "
+                    "Data storage and AI sharing are optional and configurable in Privacy & Consent.</div>",
+                    unsafe_allow_html=True
+                )
+
+                st.markdown("</div>", unsafe_allow_html=True)  # /gate-card
+            st.markdown("</div>", unsafe_allow_html=True)      # /gate-shell
 
         st.stop()
 
-    # If they chose auth but haven't logged in yet, show your auth panel only
+    # If they chose auth but haven't logged in yet, show your auth panel—styled header + back link
     if st.session_state.entry_mode in ("auth_login", "auth_signup", "auth"):
-        # Optional: header to make it clear they’re at the gate
-        st.subheader("Account access")
-        render_auth_panel()  # your existing function shows Sign up / Log in
+        st.markdown("<div class='gate-shell'>", unsafe_allow_html=True)
+        st.markdown("<div class='gate-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='gate-eyebrow'>Account</div>", unsafe_allow_html=True)
+        st.markdown("<div class='gate-title'>Access your account</div>", unsafe_allow_html=True)
+        st.markdown("<div class='gate-sub'>Use your email to sign in or create a new account.</div>", unsafe_allow_html=True)
 
-        # Provide an escape to guest
+        render_auth_panel()  # your existing function renders the forms & logged-in state
+
         st.divider()
-        if st.button("← Continue as guest instead"):
-            st.session_state.entry_mode = "guest"
-            set_guest_identity()
-            st.rerun()
+        # Minimal link-style back to guest
+        col = st.columns([1,1,1])[1]
+        with col:
+            st.caption("Prefer not to sign in?")
+            with st.container():
+                st.markdown("<div class='btn-ghost'>", unsafe_allow_html=True)
+                if st.button("Continue as guest", use_container_width=True, key="gate_guest_from_auth"):
+                    st.session_state.entry_mode = "guest"
+                    set_guest_identity()
+                    st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
 
-        # Block dashboard until they log in or choose guest
+        st.markdown("</div>", unsafe_allow_html=True)  # /gate-card
+        st.markdown("</div>", unsafe_allow_html=True)  # /gate-shell
         st.stop()
 
     # If guest chosen, proceed (identity already set)
     if st.session_state.entry_mode == "guest":
         return
+
         
 def require_consent_gate():
     """
@@ -1124,13 +1289,6 @@ def basic_mode_badge(ai_available: bool) -> str:
            ("<span style='padding:2px 8px;border-radius:9999px;background:#fee2e2;color:#7f1d1d;font-weight:600;font-size:12px;'>"
             "Basic Mode</span>")
 
-def privacy_summary_chip():
-    proc = "✅" if st.session_state.get("consent_processing") else "❌"
-    store = "✅" if st.session_state.get("consent_storage") else "❌"
-    ai   = "✅" if st.session_state.get("consent_ai") else "❌"
-    mode = st.session_state.get("retention_mode","session")
-    st.caption(f"Privacy: Processing {proc} • Storage {store} • AI {ai} • Mode: {mode}")
-
 # ===============================
 # SESSION STATE & INITIALIZATION
 # ===============================
@@ -1351,7 +1509,6 @@ if st.session_state.get("consent_ready", False):
 st.title("⌧ Fynstra")
 st.markdown("### AI-Powered Financial Health Platform for Filipinos")
 st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_allow_html=True)
-privacy_summary_chip()
 
 try:
     ensure_tables()
