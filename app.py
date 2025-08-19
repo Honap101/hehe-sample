@@ -1536,12 +1536,12 @@ with tab_calc:
                 except Exception as e:
                     st.warning(f"Could not log to Google Sheet: {e}")
         
-            # --- Persist to session for downstream UI
-            st.session_state["FHI"] = FHI_rounded
-            st.session_state["monthly_income"] = monthly_income
-            st.session_state["monthly_expenses"] = monthly_expenses
-            st.session_state["current_savings"] = monthly_savings
-            st.session_state["components"] = components
+                # --- Persist to session for downstream UI
+                st.session_state["FHI"] = FHI_rounded
+                st.session_state["monthly_income"] = monthly_income
+                st.session_state["monthly_expenses"] = monthly_expenses
+                st.session_state["current_savings"] = monthly_savings
+                st.session_state["components"] = components
     
                 st.markdown("---")
     
