@@ -1971,88 +1971,88 @@ with tab_calc:
             st.plotly_chart(radar_fig, use_container_width=True)
 
             st.subheader("📊 Detailed Analysis & Recommendations")
-                component_descriptions = {
-                    "Net Worth": "Your assets minus liabilities — shows your financial position. Higher is better.",
-                    "Debt-to-Income": "Proportion of income used to pay debts. Lower is better.",
-                    "Savings Rate": "How much of your income you save. Higher is better.",
-                    "Investment": "Proportion of assets invested for growth. Higher means better long-term potential.",
-                    "Emergency Fund": "Covers how well you're protected in financial emergencies. Higher is better."
+            component_descriptions = {
+                "Net Worth": "Your assets minus liabilities — shows your financial position. Higher is better.",
+                "Debt-to-Income": "Proportion of income used to pay debts. Lower is better.",
+                "Savings Rate": "How much of your income you save. Higher is better.",
+                "Investment": "Proportion of assets invested for growth. Higher means better long-term potential.",
+                "Emergency Fund": "Covers how well you're protected in financial emergencies. Higher is better."
+            }
+
+            col1, col2 = st.columns(2)
+            for i, (label, score) in enumerate(components.items()):
+                with (col1 if i % 2 == 0 else col2):
+                    with st.container(border=True):
+                        help_text = component_descriptions.get(label, "Higher is better.")
+                        st.markdown(f"**{label} Score:** {round(score)} / 100", help=help_text)
+                        interpretation, suggestions = interpret_component(label, score)
+                        st.markdown(f"<span style='font-size:13px; color:#444;'>{interpretation}</span>", unsafe_allow_html=True)
+                        with st.expander("💡 How to improve"):
+                            for tip in suggestions:
+                                st.write(f"- {tip}")
+
+            st.subheader("👥 How You Compare")
+            peer_averages = {
+                "18-25": {"FHI": 45, "Savings Rate": 15, "Emergency Fund": 35},
+                "26-35": {"FHI": 55, "Savings Rate": 18, "Emergency Fund": 55},
+                "36-50": {"FHI": 65, "Savings Rate": 22, "Emergency Fund": 70},
+                "50+": {"FHI": 75, "Savings Rate": 25, "Emergency Fund": 85}
+            }
+            age_group = "18-25" if age < 26 else "26-35" if age < 36 else "36-50" if age < 51 else "50+"
+            peer_data = peer_averages[age_group]
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Your FHI", f"{FHI_rounded}", f"{FHI_rounded - peer_data['FHI']:+.0f} vs peers")
+            with col2:
+                st.metric("Your Savings Rate", f"{components['Savings Rate']:.0f}%",
+                          f"{components['Savings Rate'] - peer_data['Savings Rate']:+.0f}% vs peers")
+            with col3:
+                st.metric("Your Emergency Fund", f"{components['Emergency Fund']:.0f}%",
+                          f"{components['Emergency Fund'] - peer_data['Emergency Fund']:+.0f}% vs peers")
+            
+            # --- In your calculator results area ---
+            if st.button("📄 Generate Report", key="gen_pdf"):
+                fhi = float(st.session_state.get("FHI", 0.0))
+                comps = st.session_state.get("components", {
+                    "Net Worth": 0, "Debt-to-Income": 0, "Savings Rate": 0, "Investment": 0, "Emergency Fund": 0
+                })
+                user_data = {
+                    "age": st.session_state.get("persona_defaults", {}).get("age", st.session_state.get("age", "N/A")),
+                    "income": st.session_state.get("monthly_income", 0.0),
+                    "expenses": st.session_state.get("monthly_expenses", 0.0),
+                    "savings": st.session_state.get("current_savings", 0.0),
+                    "debt": st.session_state.get("monthly_debt", 0.0),
+                    "investments": st.session_state.get("total_investments", 0.0),
+                    "net_worth": st.session_state.get("net_worth", 0.0),
+                    "emergency_fund": st.session_state.get("emergency_fund", 0.0),
                 }
-    
-                col1, col2 = st.columns(2)
-                for i, (label, score) in enumerate(components.items()):
-                    with (col1 if i % 2 == 0 else col2):
-                        with st.container(border=True):
-                            help_text = component_descriptions.get(label, "Higher is better.")
-                            st.markdown(f"**{label} Score:** {round(score)} / 100", help=help_text)
-                            interpretation, suggestions = interpret_component(label, score)
-                            st.markdown(f"<span style='font-size:13px; color:#444;'>{interpretation}</span>", unsafe_allow_html=True)
-                            with st.expander("💡 How to improve"):
-                                for tip in suggestions:
-                                    st.write(f"- {tip}")
-    
-                st.subheader("👥 How You Compare")
-                peer_averages = {
-                    "18-25": {"FHI": 45, "Savings Rate": 15, "Emergency Fund": 35},
-                    "26-35": {"FHI": 55, "Savings Rate": 18, "Emergency Fund": 55},
-                    "36-50": {"FHI": 65, "Savings Rate": 22, "Emergency Fund": 70},
-                    "50+": {"FHI": 75, "Savings Rate": 25, "Emergency Fund": 85}
-                }
-                age_group = "18-25" if age < 26 else "26-35" if age < 36 else "36-50" if age < 51 else "50+"
-                peer_data = peer_averages[age_group]
-    
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Your FHI", f"{FHI_rounded}", f"{FHI_rounded - peer_data['FHI']:+.0f} vs peers")
-                with col2:
-                    st.metric("Your Savings Rate", f"{components['Savings Rate']:.0f}%",
-                              f"{components['Savings Rate'] - peer_data['Savings Rate']:+.0f}% vs peers")
-                with col3:
-                    st.metric("Your Emergency Fund", f"{components['Emergency Fund']:.0f}%",
-                              f"{components['Emergency Fund'] - peer_data['Emergency Fund']:+.0f}% vs peers")
-                
-                # --- In your calculator results area ---
-                if st.button("📄 Generate Report", key="gen_pdf"):
-                    fhi = float(st.session_state.get("FHI", 0.0))
-                    comps = st.session_state.get("components", {
-                        "Net Worth": 0, "Debt-to-Income": 0, "Savings Rate": 0, "Investment": 0, "Emergency Fund": 0
-                    })
-                    user_data = {
-                        "age": st.session_state.get("persona_defaults", {}).get("age", st.session_state.get("age", "N/A")),
-                        "income": st.session_state.get("monthly_income", 0.0),
-                        "expenses": st.session_state.get("monthly_expenses", 0.0),
-                        "savings": st.session_state.get("current_savings", 0.0),
-                        "debt": st.session_state.get("monthly_debt", 0.0),
-                        "investments": st.session_state.get("total_investments", 0.0),
-                        "net_worth": st.session_state.get("net_worth", 0.0),
-                        "emergency_fund": st.session_state.get("emergency_fund", 0.0),
-                    }
-                
-                    recs = []
-                    if comps.get("Emergency Fund", 0) < 60:
-                        recs.append("Increase cash buffer toward 3–6 months of expenses in a high-yield account.")
-                    if comps.get("Debt-to-Income", 0) < 60:
-                        recs.append("Prioritize high-interest debt; target a DTI below 30%.")
-                    if comps.get("Savings Rate", 0) < 20:
-                        recs.append("Aim to save at least 20% of monthly income via automated transfers.")
-                    if comps.get("Investment", 0) < 50:
-                        recs.append("Start or increase regular contributions to diversified, low-cost funds.")
-                    if comps.get("Net Worth", 0) < 50:
-                        recs.append("Track assets & liabilities monthly to steadily grow net worth.")
-                
-                    st.session_state.report_pdf = build_fynstra_pdf(fhi, comps, user_data, recommendations=recs, org_name="BPI")
-                    st.success("Report generated. Use the button below to download.")
-                
-                # show a persistent download button whenever bytes exist
-                if st.session_state.get("report_pdf"):
-                    st.download_button(
-                        label="⬇️ Download PDF report",
-                        data=st.session_state["report_pdf"],
-                        file_name=f"fynstra_report_{datetime.now().strftime('%Y%m%d')}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True,
-                        key="dl_pdf"
-                    )
+            
+                recs = []
+                if comps.get("Emergency Fund", 0) < 60:
+                    recs.append("Increase cash buffer toward 3–6 months of expenses in a high-yield account.")
+                if comps.get("Debt-to-Income", 0) < 60:
+                    recs.append("Prioritize high-interest debt; target a DTI below 30%.")
+                if comps.get("Savings Rate", 0) < 20:
+                    recs.append("Aim to save at least 20% of monthly income via automated transfers.")
+                if comps.get("Investment", 0) < 50:
+                    recs.append("Start or increase regular contributions to diversified, low-cost funds.")
+                if comps.get("Net Worth", 0) < 50:
+                    recs.append("Track assets & liabilities monthly to steadily grow net worth.")
+            
+                st.session_state.report_pdf = build_fynstra_pdf(fhi, comps, user_data, recommendations=recs, org_name="BPI")
+                st.success("Report generated. Use the button below to download.")
+            
+            # show a persistent download button whenever bytes exist
+            if st.session_state.get("report_pdf"):
+                st.download_button(
+                    label="⬇️ Download PDF report",
+                    data=st.session_state["report_pdf"],
+                    file_name=f"fynstra_report_{datetime.now().strftime('%Y%m%d')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key="dl_pdf"
+                )
 
         # ===============================
         # WHAT-IF SANDBOX + EXPLAINABILITY
