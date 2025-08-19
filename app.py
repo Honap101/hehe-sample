@@ -1154,27 +1154,24 @@ def render_floating_chat(ai_available, model):
                 'expenses': st.session_state.get('monthly_expenses', 0),
                 'savings': st.session_state.get('current_savings', 0)
             }
-
+        
             use_ai = st.session_state.get("consent_ai", False)
-            if submitted and q.strip():
-                # ...
-                if use_ai and ai_available and model:
-                    response = get_ai_response(q, fhi_context, model)
-                    was_ai = True
-                else:
-                    response = get_fallback_response(q, fhi_context)
-                    was_ai = False
-            
-                chat_entry = {
-                    "question": q.strip(),
-                    "response": response,
-                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "fhi_context": fhi_context,
-                    "was_ai_response": was_ai,
-                }
-            st.session_state.chat_history.append(chat_entry)
+            if use_ai and ai_available and model:
+                response = get_ai_response(q, fhi_context, model)
+                was_ai = True
+            else:
+                response = get_fallback_response(q, fhi_context)
+                was_ai = False
+        
+            st.session_state.chat_history.append({
+                "question": q.strip(),
+                "response": response,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "fhi_context": fhi_context,
+                "was_ai_response": was_ai,
+            })
             prune_chat_history()
-            st.rerun()  # update panel immediately
+            st.rerun()
 
         # Close panel shell
         st.markdown("</div>", unsafe_allow_html=True)
@@ -1198,14 +1195,10 @@ if st.button("⚙️ Privacy & consent settings"):
     st.session_state.show_privacy = True
     st.rerun()
 
-# Only show consent UI when needed
+# Only show the consent card when explicitly requested OR required
 if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_processing", False):
     render_consent_card()
-
-# Only show auth panel if in auth flow
-if st.session_state.entry_mode in ("auth", "auth_login", "auth_signup", "auth"):
-    render_auth_panel()
-
+    # render_consent_card() will set show_privacy=False on save
 
 # Header with status badge
 st.title("⌧ Fynstra " + st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_allow_html=True)._repr_html_() if False else "⌧ Fynstra")
@@ -1217,7 +1210,9 @@ try:
 except Exception as e:
     st.warning(f"Could not ensure Sheets tables yet: {e}")
 
-render_auth_panel()
+# Only render the auth panel when the user is on the auth flow
+if st.session_state.get("entry_mode") in ("auth", "auth_login", "auth_signup"):
+    render_auth_panel()
 
 if AI_AVAILABLE:
     st.success("🤖 FYNyx AI is online and ready to help!")
