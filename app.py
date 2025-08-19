@@ -1263,10 +1263,6 @@ if st.button("⚙️ Privacy & consent settings"):
 if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_ready", False):
     render_consent_card()
 
-
-if st.session_state.get("entry_mode") in ("auth", "auth_login", "auth_signup"):
-    render_auth_panel()
-
 # Header with status badge
 st.title("⌧ Fynstra " + st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_allow_html=True)._repr_html_() if False else "⌧ Fynstra")
 st.markdown("### AI-Powered Financial Health Platform for Filipinos")
@@ -1276,10 +1272,6 @@ try:
     ensure_tables()
 except Exception as e:
     st.warning(f"Could not ensure Sheets tables yet: {e}")
-
-# Only render the auth panel when the user is on the auth flow
-if st.session_state.get("entry_mode") in ("auth", "auth_login", "auth_signup"):
-    render_auth_panel()
 
 if AI_AVAILABLE:
     st.success("🤖 FYNyx AI is online and ready to help!")
