@@ -1,13 +1,25 @@
 import streamlit as st
 import plotly.graph_objects as go
-from datetime import datetime
 import json
 import gspread
-from google.oauth2.service_account import Credentials
-import uuid, hashlib
-from supabase import create_client
 import os
+import io
 import time, random
+import uuid, hashlib
+
+from datetime import datetime
+from supabase import create_client
+from google.oauth2.service_account import Credentials
+
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.platypus.flowables import HRFlowable
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.graphics.shapes import Drawing, Rect, String
+from reportlab.graphics.charts.barcharts import HorizontalBarChart
+from reportlab.graphics.widgets.markers import makeMarker
+from reportlab.graphics import renderPDF
 
 st.set_page_config(page_title="Fynstra", page_icon="⌧", layout="wide")
 
@@ -853,6 +865,242 @@ def create_component_radar_chart(components):
 # ===============================
 # ANALYSIS & REPORTING FUNCTIONS
 # ===============================
+
+# Brand palette (accessible approximations)
+BPI_RED   = colors.HexColor("#9B1B30")
+BPI_GOLD  = colors.HexColor("#C49A41")
+INK_900   = colors.HexColor("#0f172a")
+INK_700   = colors.HexColor("#334155")
+INK_600   = colors.HexColor("#475569")
+INK_500   = colors.HexColor("#64748b")
+LINE      = colors.HexColor("#e5e7eb")
+CHIP      = colors.HexColor("#f8fafc")
+
+def _styles():
+    base = getSampleStyleSheet()
+    styles = {
+        "title": ParagraphStyle(
+            "title",
+            parent=base["Heading1"],
+            fontName="Helvetica-Bold",
+            fontSize=22,
+            leading=26,
+            textColor=INK_900,
+            spaceAfter=10,
+        ),
+        "subtitle": ParagraphStyle(
+            "subtitle",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=10.5,
+            leading=14,
+            textColor=INK_600,
+            spaceAfter=12,
+        ),
+        "eyebrow": ParagraphStyle(
+            "eyebrow",
+            parent=base["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=8.5,
+            leading=10,
+            textColor=INK_500,
+            spaceAfter=4,
+            uppercase=True
+        ),
+        "h2": ParagraphStyle(
+            "h2",
+            parent=base["Heading2"],
+            fontName="Helvetica-Bold",
+            fontSize=14.5,
+            leading=18,
+            textColor=INK_900,
+            spaceBefore=8,
+            spaceAfter=6,
+        ),
+        "body": ParagraphStyle(
+            "body",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=10.5,
+            leading=14,
+            textColor=INK_700,
+            spaceAfter=6,
+        ),
+        "small": ParagraphStyle(
+            "small",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=9,
+            leading=12,
+            textColor=INK_500,
+        ),
+        "kpi": ParagraphStyle(
+            "kpi",
+            parent=base["Heading1"],
+            fontName="Helvetica-Bold",
+            fontSize=28,
+            leading=32,
+            textColor=BPI_RED,
+        ),
+        "label": ParagraphStyle(
+            "label",
+            parent=base["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=9.5,
+            leading=12,
+            textColor=INK_700,
+        ),
+    }
+    return styles
+
+def _score_banner(fhi_score: float) -> Drawing:
+    """Big score banner with BPI gradient bar."""
+    d = Drawing(520, 70)
+    # gradient substitute: two rects
+    d.add(Rect(0, 0, 520, 70, fillColor=colors.white, strokeColor=LINE, strokeWidth=1, radius=10))
+    d.add(Rect(0, 50, 520, 6, fillColor=BPI_RED, strokeColor=BPI_RED, strokeWidth=0))
+    d.add(Rect(260, 50, 260, 6, fillColor=BPI_GOLD, strokeColor=BPI_GOLD, strokeWidth=0))
+    title = String(16, 28, "Financial Health Index", fontName="Helvetica-Bold", fontSize=14, fillColor=INK_900)
+    score = String(400, 22, f"{fhi_score:.1f} / 100", fontName="Helvetica-Bold", fontSize=22, fillColor=BPI_RED)
+    d.add(title); d.add(score)
+    return d
+
+def _components_chart(components: dict) -> Drawing:
+    """Horizontal bar chart for component scores (0-100)."""
+    labels = list(components.keys())
+    values = [float(components[k]) for k in labels]
+
+    dw, dh = 520, 200
+    d = Drawing(dw, dh)
+    chart = HorizontalBarChart()
+    chart.x = 70
+    chart.y = 20
+    chart.height = 160
+    chart.width = 420
+    chart.data = [values]
+    chart.categoryAxis.categoryNames = labels
+    chart.categoryAxis.labels.fontName = "Helvetica"
+    chart.categoryAxis.labels.fontSize = 9.5
+    chart.valueAxis.valueMin = 0
+    chart.valueAxis.valueMax = 100
+    chart.valueAxis.labels.fontName = "Helvetica"
+    chart.valueAxis.labels.fontSize = 9
+    chart.valueAxis.strokeColor = LINE
+    chart.categoryAxis.strokeColor = LINE
+
+    # bar styling
+    chart.bars[0].fillColor = BPI_RED
+    chart.bars[0].strokeColor = colors.white
+    chart.barLabelFormat = "%0.0f"
+    chart.barLabels.fontName = "Helvetica-Bold"
+    chart.barLabels.fontSize = 9
+    chart.barLabels.fillColor = INK_900
+    d.add(chart)
+    return d
+
+def _kv_table(rows):
+    t = Table(rows, colWidths=[140, 360])
+    t.setStyle(TableStyle([
+        ("FONT", (0,0), (-1,-1), "Helvetica", 10),
+        ("TEXTCOLOR", (0,0), (0,-1), INK_600),
+        ("TEXTCOLOR", (1,0), (1,-1), INK_900),
+        ("ALIGN", (0,0), (-1,-1), "LEFT"),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ("ROWBACKGROUNDS", (0,0), (-1,-1), [colors.white, CHIP]),
+        ("LINEBELOW", (0,0), (-1,-1), 0.25, LINE),
+        ("LEFTPADDING", (0,0), (-1,-1), 8),
+        ("RIGHTPADDING", (0,0), (-1,-1), 8),
+        ("TOPPADDING", (0,0), (-1,-1), 6),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+    ]))
+    return t
+
+def build_fynstra_pdf(
+    fhi_score: float,
+    components: dict,
+    user_inputs: dict,
+    recommendations: list[str] | None = None,
+    app_name: str = "Fynstra",
+    org_name: str = "BPI"
+) -> bytes:
+    """
+    Returns a BPI-themed PDF (bytes).
+    `user_inputs` expects keys like: age, income, expenses, savings, debt, investments, net_worth, emergency_fund
+    """
+
+    styles = _styles()
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36,
+        title=f"{app_name} Financial Health Report"
+    )
+
+    story = []
+
+    # Header (eyebrow + title + subtitle)
+    story.append(Paragraph("Report", styles["eyebrow"]))
+    story.append(Paragraph(f"{app_name} — Financial Health Report", styles["title"]))
+    story.append(Paragraph(
+        f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M')} · {org_name} theme",
+        styles["subtitle"]
+    ))
+
+    # Score banner
+    story.append(_score_banner(fhi_score))
+    story.append(Spacer(1, 10))
+
+    # Profile snapshot
+    story.append(HRFlowable(width="100%", thickness=0.6, color=LINE, spaceBefore=8, spaceAfter=12))
+    story.append(Paragraph("Profile snapshot", styles["h2"]))
+
+    rows = [
+        ["Age", str(user_inputs.get("age", "N/A"))],
+        ["Monthly Income (₱)", f"{user_inputs.get('income', 0):,.0f}"],
+        ["Monthly Expenses (₱)", f"{user_inputs.get('expenses', 0):,.0f}"],
+        ["Monthly Savings (₱)", f"{user_inputs.get('savings', 0):,.0f}"],
+        ["Monthly Debt (₱)", f"{user_inputs.get('debt', 0):,.0f}"],
+        ["Total Investments (₱)", f"{user_inputs.get('investments', 0):,.0f}"],
+        ["Net Worth (₱)", f"{user_inputs.get('net_worth', 0):,.0f}"],
+        ["Emergency Fund (₱)", f"{user_inputs.get('emergency_fund', 0):,.0f}"],
+    ]
+    story.append(_kv_table(rows))
+    story.append(Spacer(1, 10))
+
+    # Component breakdown
+    story.append(HRFlowable(width="100%", thickness=0.6, color=LINE, spaceBefore=8, spaceAfter=12))
+    story.append(Paragraph("Component breakdown", styles["h2"]))
+    story.append(Paragraph(
+        "Scores are normalized from 0 to 100. Higher is better. Bars show how you’re doing across Net Worth, Debt-to-Income, Savings Rate, Investment, and Emergency Fund.",
+        styles["body"]
+    ))
+    story.append(_components_chart(components))
+    story.append(Spacer(1, 10))
+
+    # Optional recommendations
+    story.append(HRFlowable(width="100%", thickness=0.6, color=LINE, spaceBefore=8, spaceAfter=12))
+    story.append(Paragraph("Recommendations", styles["h2"]))
+    if recommendations:
+        for r in recommendations:
+            story.append(Paragraph(f"• {r}", styles["body"]))
+    else:
+        story.append(Paragraph(
+            "Focus on improving any components below 60%. Build liquidity first (Emergency Fund, Savings Rate), then lower debt, and grow investments for long-term resilience.",
+            styles["body"]
+        ))
+
+    story.append(Spacer(1, 6))
+    story.append(Paragraph(
+        "This report is informational and does not constitute financial advice. For personalized planning, consult a licensed advisor.",
+        styles["small"]
+    ))
+
+    doc.build(story)
+    pdf = buf.getvalue()
+    buf.close()
+    return pdf
+
 
 def interpret_component(label, score):
     if label == "Net Worth":
@@ -1762,19 +2010,48 @@ with tab_calc:
                     st.metric("Your Emergency Fund", f"{components['Emergency Fund']:.0f}%",
                               f"{components['Emergency Fund'] - peer_data['Emergency Fund']:+.0f}% vs peers")
                 
+                # --- In your calculator results area ---
                 if st.button("📄 Generate Report"):
-                    report = generate_text_report(FHI_rounded, components, {
-                        "age": age,
-                        "income": monthly_income,
-                        "expenses": monthly_expenses,
-                        "savings": monthly_savings
+                    # Collect inputs from current state (fallbacks included)
+                    fhi = float(st.session_state.get("FHI", 0.0))
+                    comps = st.session_state.get("components", {
+                        "Net Worth": 0, "Debt-to-Income": 0, "Savings Rate": 0, "Investment": 0, "Emergency Fund": 0
                     })
+                
+                    user_data = {
+                        "age": st.session_state.get("persona_defaults", {}).get("age",  st.session_state.get("age", "N/A")),
+                        "income": st.session_state.get("monthly_income", 0.0),
+                        "expenses": st.session_state.get("monthly_expenses", 0.0),
+                        "savings": st.session_state.get("current_savings", 0.0),
+                        "debt": st.session_state.get("monthly_debt", 0.0),
+                        "investments": st.session_state.get("total_investments", 0.0),
+                        "net_worth": st.session_state.get("net_worth", 0.0),
+                        "emergency_fund": st.session_state.get("emergency_fund", 0.0),
+                    }
+                
+                    # You can craft dynamic recommendations (example below)
+                    recs = []
+                    if comps.get("Emergency Fund", 0) < 60:
+                        recs.append("Increase cash buffer toward 3–6 months of expenses in a high-yield account.")
+                    if comps.get("Debt-to-Income", 0) < 60:
+                        recs.append("Prioritize high-interest debt; target a DTI below 30%.")
+                    if comps.get("Savings Rate", 0) < 20:
+                        recs.append("Aim to save at least 20% of monthly income via automated transfers.")
+                    if comps.get("Investment", 0) < 50:
+                        recs.append("Start or increase regular contributions to diversified, low-cost funds.")
+                    if comps.get("Net Worth", 0) < 50:
+                        recs.append("Track assets & liabilities monthly to steadily grow net worth.")
+                
+                    pdf_bytes = build_fynstra_pdf(fhi, comps, user_data, recommendations=recs, org_name="BPI")
+                
                     st.download_button(
-                        label="Download Financial Health Report",
-                        data=report,
-                        file_name=f"fynstra_report_{datetime.now().strftime('%Y%m%d')}.txt",
-                        mime="text/plain"
+                        label="⬇️ Download PDF report",
+                        data=pdf_bytes,
+                        file_name=f"fynstra_report_{datetime.now().strftime('%Y%m%d')}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
                     )
+
         # ===============================
         # WHAT-IF SANDBOX + EXPLAINABILITY
         # ===============================
