@@ -325,6 +325,16 @@ def require_entry_gate():
     if st.session_state.entry_mode == "guest":
         return
 
+def ensure_calc_keys(pdft):
+    st.session_state.setdefault("age", int(pdft.get("age", 25)))
+    st.session_state.setdefault("monthly_income", float(pdft.get("monthly_income", 0.0)))
+    st.session_state.setdefault("monthly_expenses", float(pdft.get("monthly_expenses", 0.0)))
+    st.session_state.setdefault("current_savings", float(pdft.get("monthly_savings", 0.0)))
+    st.session_state.setdefault("monthly_debt", float(pdft.get("monthly_debt", 0.0)))
+    st.session_state.setdefault("total_investments", float(pdft.get("total_investments", 0.0)))
+    st.session_state.setdefault("net_worth", float(pdft.get("net_worth", 0.0)))
+    st.session_state.setdefault("emergency_fund", float(pdft.get("emergency_fund", 0.0)))
+
 
 def render_auth_panel():
     supabase = init_supabase()
@@ -826,23 +836,15 @@ def apply_persona(preset_name):
 CONSENT_VERSION = "v1"
 
 def init_privacy_state():
-    if "consent_processing" not in st.session_state:   # required to use calculator
-        st.session_state.consent_processing = False
-    if "consent_storage" not in st.session_state:      # save profile & logs to Sheets
-        st.session_state.consent_storage = False
-    if "consent_ai" not in st.session_state:           # send chat to AI provider
-        st.session_state.consent_ai = False
+    st.session_state.setdefault("consent_processing", False)
+    st.session_state.setdefault("consent_storage", False)
+    st.session_state.setdefault("consent_ai", False)
+    st.session_state.setdefault("retention_mode", "session")
+    st.session_state.setdefault("analytics_opt_in", False)
+    st.session_state.setdefault("consent_given", False)
+    st.session_state.setdefault("consent_ts", None)
+    st.session_state.setdefault("show_privacy", False)
 
-    if "retention_mode" not in st.session_state:       # 'session' or 'ephemeral'
-        st.session_state.retention_mode = "session"
-    if "analytics_opt_in" not in st.session_state:
-        st.session_state.analytics_opt_in = False
-
-    # legacy flag (only if you still want it for compatibility)
-    if "consent_given" not in st.session_state:
-        st.session_state.consent_given = False
-    if "consent_ts" not in st.session_state:
-        st.session_state.consent_ts = None
 
         
 def save_user_consents(user_id_email_meta):
@@ -865,59 +867,55 @@ def render_consent_card():
         st.subheader("🔐 Privacy & Consent")
         st.write("Choose what you’re comfortable with. You can change this anytime in Settings.")
 
+        # You can still use a form for the single 'Save' CTA, but bind widgets by key
         with st.form("privacy_form", clear_on_submit=False):
             c1, c2 = st.columns(2)
-
             with c1:
-                # Bind directly to session_state via explicit keys
                 st.checkbox(
                     "Allow processing to compute FHI (required)",
-                    key="consent_processing",
+                    key="consent_processing"
                 )
                 st.checkbox(
                     "Allow saving my profile & calculations to Google Sheets",
-                    key="consent_storage",
+                    key="consent_storage"
                 )
                 st.checkbox(
                     "Allow sending my questions/context to the AI provider",
-                    key="consent_ai",
+                    key="consent_ai"
                 )
-
             with c2:
                 st.radio(
                     "Chat data retention",
-                    options=["session", "ephemeral"],
+                    options=["session","ephemeral"],
                     key="retention_mode",
-                    horizontal=True,
+                    horizontal=True
                 )
                 st.checkbox(
                     "Allow anonymized analytics (counts only)",
-                    key="analytics_opt_in",
+                    key="analytics_opt_in"
                 )
 
-            # Don't disable the button — validate after click
-            submitted = st.form_submit_button("Save privacy preferences", type="primary")
+            submitted = st.form_submit_button(
+                "Save privacy preferences",
+                type="primary",
+                disabled=not st.session_state.get("consent_processing", False)
+            )
 
         if submitted:
-            if not st.session_state.get("consent_processing", False):
-                st.error("You must allow processing to compute FHI.")
-                return
-
             st.session_state.consent_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             st.session_state.consent_given = True
+            st.session_state.show_privacy = False
 
-            # Persist to Sheets only if logged in
+            # optionally persist to Sheets if logged in
             if st.session_state.get("user_id"):
                 save_user_consents({
                     "id": st.session_state["user_id"],
                     "email": st.session_state.get("email"),
-                    "display_name": st.session_state.get("display_name"),
+                    "display_name": st.session_state.get("display_name")
                 })
 
-            st.session_state.show_privacy = False
             st.success("Preferences saved")
             st.rerun()
-
 
 def hash_string(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()[:12]
@@ -1141,7 +1139,7 @@ def render_floating_chat(ai_available, model):
         st.markdown("<div class='fynyx-chat-footer'>", unsafe_allow_html=True)
         form_disabled = not (st.session_state.get("consent_processing", False) and
                              st.session_state.get("consent_ai", False))
-
+        
         with st.form(key="fyn_chat_form", clear_on_submit=True):
             q = st.text_input("Ask FYNyx", value="", placeholder="e.g., How can I build my emergency fund?", disabled=form_disabled)
             submitted = st.form_submit_button("Send", disabled=form_disabled)
@@ -1156,22 +1154,21 @@ def render_floating_chat(ai_available, model):
             }
 
             use_ai = st.session_state.get("consent_ai", False)
-            if submitted and q.strip():
-                # ...
-                if use_ai and ai_available and model:
-                    response = get_ai_response(q, fhi_context, model)
-                    was_ai = True
-                else:
-                    response = get_fallback_response(q, fhi_context)
-                    was_ai = False
-            
-                chat_entry = {
-                    "question": q.strip(),
-                    "response": response,
-                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "fhi_context": fhi_context,
-                    "was_ai_response": was_ai,
-                }
+
+            if use_ai and ai_available and model:
+                response = get_ai_response(q, fhi_context, model)
+                was_ai = True
+            else:
+                response = get_fallback_response(q, fhi_context)
+                was_ai = False
+        
+            chat_entry = {
+                "question": q.strip(),
+                "response": response,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "fhi_context": fhi_context,
+                "was_ai_response": was_ai,
+            }
             st.session_state.chat_history.append(chat_entry)
             prune_chat_history()
             st.rerun()  # update panel immediately
@@ -1251,6 +1248,7 @@ with tab_calc:
     
             # Use persona defaults when available
             pdft = st.session_state.persona_defaults  # shorthand
+            ensure_calc_keys(pdft)
             
             col1, col2 = st.columns(2)
             with col1:
