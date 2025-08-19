@@ -877,7 +877,7 @@ def save_user_consents(user_id_email_meta):
 def render_consent_card():
     with st.container(border=True):
         st.subheader("🔐 Privacy & Consent")
-        st.write("Choose what you’re comfortable with. You can change this anytime in Settings.")
+        st.write("Choose what you’re comfortable with. Refresh the page if you want to change your preferences")
 
         with st.form("privacy_form", clear_on_submit=False):
             c1, c2 = st.columns(2)
