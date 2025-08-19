@@ -1245,26 +1245,32 @@ def render_floating_chat(ai_available, model):
 
 initialize_session_state()
 init_persona_state()
-init_privacy_state()    # <-- must run BEFORE any checks/UI
+init_privacy_state()  # must run BEFORE any checks/UI
 
 # stable guest id early
 if "anon_id" not in st.session_state:
     st.session_state.anon_id = hashlib.sha256(str(uuid.uuid4()).encode()).hexdigest()[:12]
 
 AI_AVAILABLE, model = initialize_ai()
+
+# 1) Entry (login/signup/guest) and 2) hard consent gate.
+# These functions may render UI and call st.stop() as needed.
 require_entry_gate()
 require_consent_gate()
 
-if st.button("⚙️ Privacy & consent settings"):
-    st.session_state.show_privacy = True
-    st.rerun()
+# ---- OPTIONAL: open the consent form as a settings page (only AFTER consent is ready)
+if st.session_state.get("consent_ready", False):
+    if st.button("⚙️ Privacy & consent settings"):
+        st.session_state.show_privacy = True
+        st.rerun()
 
-# Show the card only if explicitly requested OR user has never saved yet
-if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_ready", False):
-    render_consent_card()
+    if st.session_state.get("show_privacy", False):
+        st.title("🔐 Privacy & Consent")
+        render_consent_card()
+        st.stop()  # stop here so settings page stands alone on this run
 
-# Header with status badge
-st.title("⌧ Fynstra " + st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_allow_html=True)._repr_html_() if False else "⌧ Fynstra")
+# ---- From here on, we are past both gates
+st.title("⌧ Fynstra")
 st.markdown("### AI-Powered Financial Health Platform for Filipinos")
 st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_allow_html=True)
 
@@ -1279,6 +1285,7 @@ else:
     st.warning("🤖 FYNyx AI is in basic mode. Install google-generativeai for full AI features.")
 
 tab_calc, tab_goals = st.tabs(["Financial Health Calculator", "Goal Tracker"])
+
 # ===================================
 # TAB 1: FINANCIAL HEALTH CALCULATOR
 # ===================================
