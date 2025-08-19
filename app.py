@@ -1,17 +1,28 @@
+# =====================
+# IMPORTS & APP CONFIG
+# =====================
+
+# Standard Libraries
+import csv
+import io
+import json
+import os
+import time
+import uuid
+import hashlib
+import random
+from datetime import datetime
+from typing import Dict, List, Tuple
+
+# Third-party
 import streamlit as st
 import plotly.graph_objects as go
-import json
 import gspread
-import os
-import io
-import time, random
-import uuid, hashlib
-
-from datetime import datetime
 from supabase import create_client
 from google.oauth2.service_account import Credentials
-
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+)
 from reportlab.platypus.flowables import HRFlowable
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.pagesizes import A4
@@ -19,7 +30,7 @@ from reportlab.lib import colors
 from reportlab.graphics.shapes import Drawing, Rect, String
 from reportlab.graphics.charts.barcharts import HorizontalBarChart
 
-
+# App config first so layout applies immediately
 st.set_page_config(page_title="Fynstra", page_icon="⌧", layout="wide")
 
 # ===============================
@@ -53,7 +64,7 @@ def append_row(worksheet_name: str, row: list):
         ])
     ws.append_row(row, value_input_option="USER_ENTERED")
 
-# --- Minimal identity (guest for now; upgrade later when you add real sign-in) ---
+# Minimal identity (guest for now)
 def _anon_id():
     if "anon_id" not in st.session_state:
         st.session_state.anon_id = hashlib.sha256(str(uuid.uuid4()).encode()).hexdigest()[:12]
