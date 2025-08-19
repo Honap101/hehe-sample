@@ -1524,6 +1524,226 @@ def basic_mode_badge(ai_available: bool) -> str:
            ("<span style='padding:2px 8px;border-radius:9999px;background:#fee2e2;color:#7f1d1d;font-weight:600;font-size:12px;'>"
             "Basic Mode</span>")
 
+# -------------------------------
+# Results flow (survives reruns)
+# -------------------------------
+
+def handle_calculation_click(
+    age, monthly_income, monthly_expenses, monthly_savings,
+    monthly_debt, total_investments, net_worth, emergency_fund
+):
+    """Runs validation, computes FHI, stores everything in session_state,
+    and (optionally) logs to Sheets if the user allowed storage."""
+    consent_required_or_stop()
+
+    errors, warnings_ = validate_financial_inputs(
+        monthly_income, monthly_expenses, monthly_debt, monthly_savings
+    )
+    if errors:
+        for e in errors: st.error(e)
+        st.info("💡 Please review your inputs and try again.")
+        st.stop()
+
+    if monthly_income == 0 or monthly_expenses == 0:
+        st.warning("Please input your income and expenses.")
+        st.stop()
+
+    for w in warnings_:
+        st.warning(w)
+
+    # Compute
+    FHI, components = calculate_fhi(
+        age, monthly_income, monthly_expenses, monthly_savings,
+        monthly_debt, total_investments, net_worth, emergency_fund
+    )
+    FHI_rounded = round(FHI, 2)
+
+    # Persist for rerun-safe UI
+    st.session_state["FHI"] = FHI_rounded
+    st.session_state["components"] = components
+    st.session_state["inputs_for_pdf"] = {
+        "age": age,
+        "income": monthly_income,
+        "expenses": monthly_expenses,
+        "savings": monthly_savings,
+        "debt": monthly_debt,
+        "investments": total_investments,
+        "net_worth": net_worth,
+        "emergency_fund": emergency_fund,
+    }
+    st.session_state["show_results"] = True
+
+    # ---------- Optional: autosave profile for email-auth users ----------
+    try:
+        if st.session_state.get("auth_method") == "email" and st.session_state.get("user_id"):
+            if st.session_state.get("consent_storage", False):
+                user_stub = {
+                    "id": st.session_state["user_id"],
+                    "email": st.session_state.get("email"),
+                    "user_metadata": {"username": st.session_state.get("display_name")},
+                }
+                upsert_user_row(user_stub, payload={
+                    "age": age,
+                    "monthly_income": monthly_income,
+                    "monthly_expenses": monthly_expenses,
+                    "monthly_savings": monthly_savings,
+                    "monthly_debt": monthly_debt,
+                    "total_investments": total_investments,
+                    "net_worth": net_worth,
+                    "emergency_fund": emergency_fund,
+                    "last_FHI": FHI_rounded
+                })
+                st.toast("Autosaved profile to Google Sheet ✅", icon="✅")
+                try:
+                    log_auth_event("profile_autosaved", user_stub, note="Saved after calculation")
+                except Exception:
+                    pass
+            else:
+                st.caption("Autosave is off (you disabled storage).")
+    except Exception as e:
+        st.warning(f"Could not update profile: {e}")
+
+    # ---------- Optional: append a calc log row if storage consent ----------
+    try:
+        if st.session_state.get("consent_storage", False):
+            ident = get_user_identity()
+            ws_name = worksheet_for(ident)
+            sh = open_sheet()
+            try:
+                ws = sh.worksheet(ws_name)
+            except gspread.WorksheetNotFound:
+                ws = sh.add_worksheet(title=ws_name, rows=1000, cols=30)
+                ws.append_row([
+                    "ts","auth_method","user_id","email","display_name",
+                    "age","income","expenses","savings","debt","investments",
+                    "net_worth","emergency_fund","FHI"
+                ], value_input_option="USER_ENTERED")
+            append_row_safe(ws, [
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                ident["auth_method"], ident["user_id"], ident["email"], ident["display_name"],
+                age, monthly_income, monthly_expenses, monthly_savings, monthly_debt,
+                total_investments, net_worth, emergency_fund, FHI_rounded
+            ])
+            st.toast("💾 Saved to Google Sheet", icon="✅")
+    except Exception as e:
+        st.warning(f"Could not log to Google Sheet: {e}")
+
+
+def _build_recommendations(components: dict) -> list[str]:
+    """Simple rules that turn component gaps into bullets for the PDF."""
+    recs = []
+    if components.get("Emergency Fund", 0) < 60:
+        recs.append("Increase cash buffer toward 3–6 months of expenses in a high-yield account.")
+    if components.get("Debt-to-Income", 0) < 60:
+        recs.append("Prioritize high-interest debt; target a DTI below 30%.")
+    if components.get("Savings Rate", 0) < 20:
+        recs.append("Aim to save at least 20% of monthly income via automated transfers.")
+    if components.get("Investment", 0) < 50:
+        recs.append("Start or increase regular contributions to diversified, low-cost funds.")
+    if components.get("Net Worth", 0) < 50:
+        recs.append("Track assets & liabilities monthly to steadily grow net worth.")
+    return recs
+
+
+def render_results_and_report_ui():
+    if not (st.session_state.get("show_results") and
+            "FHI" in st.session_state and "components" in st.session_state):
+        return
+
+    FHI_rounded = st.session_state["FHI"]
+    components = st.session_state["components"]
+
+    st.markdown("---")
+    score_col, text_col = st.columns([1, 2])  # <- correct indent (fixes your error)
+
+    with score_col:
+        st.plotly_chart(create_gauge_chart(FHI_rounded), use_container_width=True)
+
+    with text_col:
+        st.markdown(f"### Overall FHI Score: **{FHI_rounded}/100**")
+
+        weak_areas = [c.lower() for c, s in components.items() if s < 60]
+        weak_text = ""
+        if weak_areas:
+            if len(weak_areas) == 1:
+                weak_text = f" However, your {weak_areas[0]} needs improvement."
+            else:
+                weak_text = f" However, your {', '.join(weak_areas[:-1])} and {weak_areas[-1]} need improvement."
+            weak_text += " Addressing this will help strengthen your overall financial health."
+
+        if FHI_rounded >= 85:
+            st.success(f"🎯 Excellent! You're in great financial shape and well-prepared for the future.{weak_text}")
+        elif FHI_rounded >= 70:
+            st.info(f"🟢 Good! You have a solid foundation. Stay consistent and work on gaps where needed.{weak_text}")
+        elif FHI_rounded >= 50:
+            st.warning(f"🟡 Fair. You're on your way, but some areas need attention to build a stronger safety net.{weak_text}")
+        else:
+            st.error(f"🔴 Needs Improvement. Your finances require urgent attention — prioritize stabilizing your income, debt, and savings.{weak_text}")
+
+    st.subheader("📈 Financial Health Breakdown")
+    st.plotly_chart(create_component_radar_chart(components), use_container_width=True)
+
+    st.subheader("📊 Detailed Analysis & Recommendations")
+    component_descriptions = {
+        "Net Worth": "Your assets minus liabilities — shows your financial position. Higher is better.",
+        "Debt-to-Income": "Proportion of income used to pay debts. Lower is better.",
+        "Savings Rate": "How much of your income you save. Higher is better.",
+        "Investment": "Proportion of assets invested for growth. Higher means better long-term potential.",
+        "Emergency Fund": "Covers how well you're protected in financial emergencies. Higher is better."
+    }
+
+    col1, col2 = st.columns(2)
+    for i, (label, score) in enumerate(components.items()):
+        with (col1 if i % 2 == 0 else col2):
+            with st.container(border=True):
+                st.markdown(f"**{label} Score:** {round(score)} / 100",
+                            help=component_descriptions.get(label, "Higher is better."))
+                interpretation, suggestions = interpret_component(label, score)
+                st.markdown(f"<span style='font-size:13px; color:#444;'>{interpretation}</span>",
+                            unsafe_allow_html=True)
+                with st.expander("💡 How to improve"):
+                    for tip in suggestions:
+                        st.write(f"- {tip}")
+
+    # Simple “peer” metrics demo
+    age = st.session_state.get("inputs_for_pdf", {}).get("age", 25)
+    peer_averages = {
+        "18-25": {"FHI": 45, "Savings Rate": 15, "Emergency Fund": 35},
+        "26-35": {"FHI": 55, "Savings Rate": 18, "Emergency Fund": 55},
+        "36-50": {"FHI": 65, "Savings Rate": 22, "Emergency Fund": 70},
+        "50+":   {"FHI": 75, "Savings Rate": 25, "Emergency Fund": 85}
+    }
+    age_group = "18-25" if age < 26 else "26-35" if age < 36 else "36-50" if age < 51 else "50+"
+    peer_data = peer_averages[age_group]
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Your FHI", f"{FHI_rounded}", f"{FHI_rounded - peer_data['FHI']:+.0f} vs peers")
+    c2.metric("Your Savings Rate", f"{components['Savings Rate']:.0f}%",
+              f"{components['Savings Rate'] - peer_data['Savings Rate']:+.0f}% vs peers")
+    c3.metric("Your Emergency Fund", f"{components['Emergency Fund']:.0f}%",
+              f"{components['Emergency Fund'] - peer_data['Emergency Fund']:+.0f}% vs peers")
+
+    # ---- Generate PDF ----
+    if st.button("📄 Generate Report", key="gen_pdf"):
+        recs = _build_recommendations(components)
+        user_data = st.session_state.get("inputs_for_pdf", {})
+        st.session_state.report_pdf = build_fynstra_pdf(
+            st.session_state["FHI"], components, user_data,
+            recommendations=recs, org_name="BPI"
+        )
+        st.success("Report generated. Use the button below to download.")
+
+    if st.session_state.get("report_pdf"):
+        st.download_button(
+            label="⬇️ Download PDF report",
+            data=st.session_state["report_pdf"],
+            file_name=f"fynstra_report_{datetime.now().strftime('%Y%m%d')}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            key="dl_pdf",
+        )
+
+
 # ===============================
 # SESSION STATE & INITIALIZATION
 # ===============================
@@ -1850,210 +2070,23 @@ with tab_calc:
                     help="Total assets minus total liabilities."
                 )
     
-        if st.button("Check My Financial Health", type="primary"):
-            st.session_state.report_pdf = None
-            consent_required_or_stop()
-        
-            errors, warnings_ = validate_financial_inputs(
-                monthly_income, monthly_expenses, monthly_debt, monthly_savings
+        # Compute & persist results
+        if st.button("Check My Financial Health", type="primary", key="calc"):
+            handle_calculation_click(
+                age=age,
+                monthly_income=monthly_income,
+                monthly_expenses=monthly_expenses,
+                monthly_savings=monthly_savings,
+                monthly_debt=monthly_debt,
+                total_investments=total_investments,
+                net_worth=net_worth,
+                emergency_fund=emergency_fund,
             )
         
-            if errors:
-                for error in errors:
-                    st.error(error)
-                st.info("💡 Please review your inputs and try again.")
-                st.stop()
-        
-            if monthly_income == 0 or monthly_expenses == 0:
-                st.warning("Please input your income and expenses.")
-                st.stop()
-        
-            for w in warnings_:
-                st.warning(w)
-        
-            # --- Compute FHI
-            FHI, components = calculate_fhi(
-                age, monthly_income, monthly_expenses, monthly_savings,
-                monthly_debt, total_investments, net_worth, emergency_fund
-            )
-            FHI_rounded = round(FHI, 2)
-        
-            # --- Optional autosave of the profile (only if email-auth + storage consent)
-            if st.session_state.get("auth_method") == "email" and st.session_state.get("user_id"):
-                if st.session_state.get("consent_storage", False):
-                    user_stub = {
-                        "id": st.session_state["user_id"],
-                        "email": st.session_state.get("email"),
-                        "user_metadata": {"username": st.session_state.get("display_name")},
-                    }
-                    # Use backoff within upsert path (upsert already handles errors internally)
-                    upsert_user_row(user_stub, payload={
-                        "age": age,
-                        "monthly_income": monthly_income,
-                        "monthly_expenses": monthly_expenses,
-                        "monthly_savings": monthly_savings,
-                        "monthly_debt": monthly_debt,
-                        "total_investments": total_investments,
-                        "net_worth": net_worth,
-                        "emergency_fund": emergency_fund,
-                        "last_FHI": FHI_rounded
-                    })
-                    st.toast("Autosaved profile to Google Sheet ✅", icon="✅")
-                    try:
-                        log_auth_event("profile_autosaved", user_stub, note="Saved after calculation")
-                    except:
-                        pass
-                else:
-                    st.caption("Autosave is off (you disabled storage).")
-        
-            # --- Append per-calculation row to the appropriate log worksheet (if storage consent)
-            if st.session_state.get("consent_storage", False):
-                try:
-                    ident = get_user_identity()
-                    ws_name = worksheet_for(ident)
-                    sh = open_sheet()
-                    try:
-                        ws = sh.worksheet(ws_name)
-                    except gspread.WorksheetNotFound:
-                        ws = sh.add_worksheet(title=ws_name, rows=1000, cols=30)
-                        append_row_safe(ws, [
-                            "ts","auth_method","user_id","email","display_name",
-                            "age","income","expenses","savings","debt","investments","net_worth","emergency_fund","FHI"
-                        ])
-                    append_row_safe(ws, [
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        ident["auth_method"], ident["user_id"], ident["email"], ident["display_name"],
-                        age, monthly_income, monthly_expenses, monthly_savings, monthly_debt,
-                        total_investments, net_worth, emergency_fund, FHI_rounded
-                    ])
-                    st.toast("💾 Saved to Google Sheet", icon="✅")
-                except Exception as e:
-                    st.warning(f"Could not log to Google Sheet: {e}")
-        
-            # --- Persist to session for downstream UI
-            st.session_state["FHI"] = FHI_rounded
-            st.session_state["monthly_income"] = monthly_income
-            st.session_state["monthly_expenses"] = monthly_expenses
-            st.session_state["current_savings"] = monthly_savings
-            st.session_state["components"] = components\
+        # Always render (if present in session) so results survive reruns
+        render_results_and_report_ui()
+
             
-            st.markdown("---")
-            score_col, text_col = st.columns([1, 2])
-    
-            with score_col:
-                fig = create_gauge_chart(FHI_rounded)
-                st.plotly_chart(fig, use_container_width=True)
-
-            with text_col:
-                st.markdown(f"### Overall FHI Score: **{FHI_rounded}/100**")
-
-                weak_areas = [c.lower() for c, s in components.items() if s < 60]
-                weak_text = ""
-                if weak_areas:
-                    if len(weak_areas) == 1:
-                        weak_text = f" However, your {weak_areas[0]} needs improvement."
-                    else:
-                        all_but_last = ", ".join(weak_areas[:-1])
-                        weak_text = f" However, your {all_but_last} and {weak_areas[-1]} need improvement."
-                    weak_text += " Addressing this will help strengthen your overall financial health."
-
-                if FHI >= 85:
-                    st.success(f"🎯 Excellent! You're in great financial shape and well-prepared for the future.{weak_text}")
-                elif FHI >= 70:
-                    st.info(f"🟢 Good! You have a solid foundation. Stay consistent and work on gaps where needed.{weak_text}")
-                elif FHI >= 50:
-                    st.warning(f"🟡 Fair. You're on your way, but some areas need attention to build a stronger safety net.{weak_text}")
-                else:
-                    st.error(f"🔴 Needs Improvement. Your finances require urgent attention — prioritize stabilizing your income, debt, and savings.{weak_text}")
-
-            st.subheader("📈 Financial Health Breakdown")
-            radar_fig = create_component_radar_chart(components)
-            st.plotly_chart(radar_fig, use_container_width=True)
-
-            st.subheader("📊 Detailed Analysis & Recommendations")
-            component_descriptions = {
-                "Net Worth": "Your assets minus liabilities — shows your financial position. Higher is better.",
-                "Debt-to-Income": "Proportion of income used to pay debts. Lower is better.",
-                "Savings Rate": "How much of your income you save. Higher is better.",
-                "Investment": "Proportion of assets invested for growth. Higher means better long-term potential.",
-                "Emergency Fund": "Covers how well you're protected in financial emergencies. Higher is better."
-            }
-
-            col1, col2 = st.columns(2)
-            for i, (label, score) in enumerate(components.items()):
-                with (col1 if i % 2 == 0 else col2):
-                    with st.container(border=True):
-                        help_text = component_descriptions.get(label, "Higher is better.")
-                        st.markdown(f"**{label} Score:** {round(score)} / 100", help=help_text)
-                        interpretation, suggestions = interpret_component(label, score)
-                        st.markdown(f"<span style='font-size:13px; color:#444;'>{interpretation}</span>", unsafe_allow_html=True)
-                        with st.expander("💡 How to improve"):
-                            for tip in suggestions:
-                                st.write(f"- {tip}")
-
-            st.subheader("👥 How You Compare")
-            peer_averages = {
-                "18-25": {"FHI": 45, "Savings Rate": 15, "Emergency Fund": 35},
-                "26-35": {"FHI": 55, "Savings Rate": 18, "Emergency Fund": 55},
-                "36-50": {"FHI": 65, "Savings Rate": 22, "Emergency Fund": 70},
-                "50+": {"FHI": 75, "Savings Rate": 25, "Emergency Fund": 85}
-            }
-            age_group = "18-25" if age < 26 else "26-35" if age < 36 else "36-50" if age < 51 else "50+"
-            peer_data = peer_averages[age_group]
-
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Your FHI", f"{FHI_rounded}", f"{FHI_rounded - peer_data['FHI']:+.0f} vs peers")
-            with col2:
-                st.metric("Your Savings Rate", f"{components['Savings Rate']:.0f}%",
-                          f"{components['Savings Rate'] - peer_data['Savings Rate']:+.0f}% vs peers")
-            with col3:
-                st.metric("Your Emergency Fund", f"{components['Emergency Fund']:.0f}%",
-                          f"{components['Emergency Fund'] - peer_data['Emergency Fund']:+.0f}% vs peers")
-            
-            # --- In your calculator results area ---
-            if st.button("📄 Generate Report", key="gen_pdf"):
-                fhi = float(st.session_state.get("FHI", 0.0))
-                comps = st.session_state.get("components", {
-                    "Net Worth": 0, "Debt-to-Income": 0, "Savings Rate": 0, "Investment": 0, "Emergency Fund": 0
-                })
-                user_data = {
-                    "age": st.session_state.get("persona_defaults", {}).get("age", st.session_state.get("age", "N/A")),
-                    "income": st.session_state.get("monthly_income", 0.0),
-                    "expenses": st.session_state.get("monthly_expenses", 0.0),
-                    "savings": st.session_state.get("current_savings", 0.0),
-                    "debt": st.session_state.get("monthly_debt", 0.0),
-                    "investments": st.session_state.get("total_investments", 0.0),
-                    "net_worth": st.session_state.get("net_worth", 0.0),
-                    "emergency_fund": st.session_state.get("emergency_fund", 0.0),
-                }
-            
-                recs = []
-                if comps.get("Emergency Fund", 0) < 60:
-                    recs.append("Increase cash buffer toward 3–6 months of expenses in a high-yield account.")
-                if comps.get("Debt-to-Income", 0) < 60:
-                    recs.append("Prioritize high-interest debt; target a DTI below 30%.")
-                if comps.get("Savings Rate", 0) < 20:
-                    recs.append("Aim to save at least 20% of monthly income via automated transfers.")
-                if comps.get("Investment", 0) < 50:
-                    recs.append("Start or increase regular contributions to diversified, low-cost funds.")
-                if comps.get("Net Worth", 0) < 50:
-                    recs.append("Track assets & liabilities monthly to steadily grow net worth.")
-            
-                st.session_state.report_pdf = build_fynstra_pdf(fhi, comps, user_data, recommendations=recs, org_name="BPI")
-                st.success("Report generated. Use the button below to download.")
-            
-            # show a persistent download button whenever bytes exist
-            if st.session_state.get("report_pdf"):
-                st.download_button(
-                    label="⬇️ Download PDF report",
-                    data=st.session_state["report_pdf"],
-                    file_name=f"fynstra_report_{datetime.now().strftime('%Y%m%d')}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    key="dl_pdf"
-                )
-
         # ===============================
         # WHAT-IF SANDBOX + EXPLAINABILITY
         # ===============================
