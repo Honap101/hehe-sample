@@ -2611,6 +2611,19 @@ st.markdown("---")
 st.markdown("**Fynstra AI** - Empowering Filipinos to **F**orecast, **Y**ield, and **N**avigate their financial future with confidence.")
 st.markdown("*Developed by Team HI-4requency for DataWave 2025*")
 
+with st.expander("📤 Export or delete my data", expanded=False):
+    if st.session_state.get("user_id"):
+        export_my_data_ui()
+        st.caption("Need to erase your saved profile from Google Sheets?")
+        confirm = st.checkbox(
+            "I understand this will permanently delete my saved profile.",
+            key="delete_confirm_main"
+        )
+        if confirm:
+            forget_me_ui()
+    else:
+        st.caption("Sign in to export or delete saved data.")
+
 # ====================================
 # RENDER FLOATING CHAT (on all pages)
 # ====================================
