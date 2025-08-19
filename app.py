@@ -396,51 +396,6 @@ def _bpi_gate_css():
         .features{ grid-template-columns:1fr; }
       }
     </style>
-      /* ---------- HERO BANNER ---------- */
-      .hero-shell{ max-width: 920px; margin: 4vh auto 1.25rem auto; }
-      .hero-box{
-        position: relative;
-        background: linear-gradient(90deg, var(--bpi-red) 0%, var(--bpi-gold) 100%);
-        border-radius: 22px;
-        padding: 26px 28px;
-        color: #fff;
-        box-shadow: 0 30px 80px rgba(15,23,42,.16), 0 8px 24px rgba(15,23,42,.12);
-      }
-      .hero-content{
-        display: grid;
-        grid-template-columns: 110px 1fr;
-        gap: 20px;
-        align-items: center;
-      }
-      .hero-badge{
-        width: 110px; height: 110px; border-radius: 14px;
-        background: rgba(255,255,255,.12);
-        display:flex; align-items:center; justify-content:center;
-      }
-      .hero-copy h2{
-        margin: 0 0 6px 0; font-weight: 800; letter-spacing: .2px;
-        font-size: 1.35rem; line-height: 1.25;
-      }
-      .hero-copy p{
-        margin: 0; opacity: .92; font-size: .98rem; line-height: 1.35rem;
-        max-width: 58ch;
-      }
-      .hero-note{
-        margin-top: 10px; font-size: .88rem; opacity: .85;
-      }
-      /* subtle glossy highlight */
-      .hero-box:after{
-        content:""; position:absolute; inset:0 0 auto 0; height:55%;
-        background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,0));
-        border-radius: 22px 22px 0 0; pointer-events:none;
-      }
-      @media (max-width: 900px){
-        .hero-content{ grid-template-columns: 1fr; gap: 12px; }
-        .hero-badge{ width: 86px; height: 86px; margin: 0 auto; }
-        .hero-copy h2{ text-align:center; }
-        .hero-copy p, .hero-note{ text-align:center; margin-left:auto; margin-right:auto; }
-      }
-    </style>
     """, unsafe_allow_html=True)
 
 def require_entry_gate():
@@ -461,27 +416,6 @@ def require_entry_gate():
         st.session_state.entry_mode = None
 
     if st.session_state.entry_mode is None:
-        # HERO BANNER (no emojis, BPI colors)
-        st.markdown("<div class='hero-shell'><div class='hero-box'>", unsafe_allow_html=True)
-        st.markdown("""
-        <div class="hero-content">
-          <!-- Badge area: use inline SVG; swap with <img> if you have a logo -->
-          <div class="hero-badge">
-            <svg width="60" height="60" viewBox="0 0 48 48" fill="none" stroke="#ffffff" stroke-width="2.2">
-              <path d="M24 4l15 8v10c0 10-7.5 16-15 18-7.5-2-15-8-15-18V12l15-8z" fill="rgba(255,255,255,.10)"/>
-              <path d="M16 24h16M16 19h16M16 29h10" />
-            </svg>
-          </div>
-          <div class="hero-copy">
-            <h2>Trusted banking heritage meets modern intelligence</h2>
-            <p>Bring BPI’s standard of trust to personal planning with an AI-powered financial health experience designed for the Philippine context.</p>
-            <div class="hero-note">Secure by design • Consent-controlled • Transparent scoring</div>
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.markdown("</div></div>", unsafe_allow_html=True)
-    
-        # ENTRY CARD (unchanged logic, upgraded UI)
         st.markdown("<div class='gate-shell'><div class='gate-card'>", unsafe_allow_html=True)
         st.markdown("<div class='gate-eyebrow'>Welcome</div>", unsafe_allow_html=True)
         st.markdown(
@@ -493,7 +427,7 @@ def require_entry_gate():
             "Choose how you want to continue.</div>",
             unsafe_allow_html=True
         )
-    
+
         c1, c2, c3 = st.columns(3, gap="large")
         with c1:
             st.markdown("<div class='btn-primary'>", unsafe_allow_html=True)
@@ -514,8 +448,8 @@ def require_entry_gate():
                 set_guest_identity()
                 st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
-    
-        # Features (keep your existing section)
+
+        # Feature mini-cards (SVG icons; no emojis)
         st.markdown("""
         <div class="features">
           <div class="feature">
@@ -538,16 +472,14 @@ def require_entry_gate():
           </div>
         </div>
         """, unsafe_allow_html=True)
-    
+
         st.markdown(
             "<div class='gate-foot'>By continuing, you agree to basic processing required to run the calculator. "
             "Data storage and AI sharing are optional and configurable in Privacy & Consent.</div>",
             unsafe_allow_html=True
         )
-    
         st.markdown("</div></div>", unsafe_allow_html=True)  # /gate-card /gate-shell
         st.stop()
-
 
     if st.session_state.entry_mode in ("auth_login", "auth_signup", "auth"):
         st.markdown("<div class='gate-shell'><div class='gate-card'>", unsafe_allow_html=True)
