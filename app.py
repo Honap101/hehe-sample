@@ -143,69 +143,78 @@ def upsert_user_row(user: dict, payload: dict | None = None):
     Create or update the Users row.
     `payload` can contain persisted profile fields (age, income, etc., last_FHI).
     """
-    ensure_tables()
-    payload = payload or {}
     try:
+        ensure_tables()
+        payload = payload or {}
+        
+        if not user.get("id"):
+            st.warning("User ID is required")
+            return False
+        
+        sanitized_payload = {}
+        for key, value in payload.items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                sanitized_payload[key] = value
+            elif isinstance(value, str):
+                sanitized_payload[key] = value.strip()[:1000]
+            else:
+                sanitized_payload[key] = str(value)[:1000] if value is not None else ""
+        
         sh = open_sheet()
         ws = sh.worksheet(USERS_SHEET)
 
-        # Find by user_id
         values = ws.get_all_values()
         if not values:
-            values = [[
+            headers = [
                 "user_id","email","username","created_at","last_login",
                 "age","monthly_income","monthly_expenses","monthly_savings",
                 "monthly_debt","total_investments","net_worth","emergency_fund",
-                "last_FHI",
-                "consent_processing","consent_storage","consent_ai","analytics_opt_in",
-                "consent_version","consent_ts"
-            ]]
+                "last_FHI","consent_processing","consent_storage","consent_ai",
+                "analytics_opt_in","consent_version","consent_ts"
+            ]
+            ws.append_row(headers)
+            values = [headers]
 
         header = values[0]
         rows = values[1:]
-        uid_idx = header.index("user_id") if "user_id" in header else None
-
+        
+        user_id = user.get("id")
         found_row_idx = None
-        for i, row in enumerate(rows, start=2):  # 1-based header, data starts row 2
-            if uid_idx is not None and len(row) > uid_idx and row[uid_idx] == user.get("id"):
-                found_row_idx = i
-                break
+        
+        if "user_id" in header:
+            uid_idx = header.index("user_id")
+            for i, row in enumerate(rows, start=2):
+                if len(row) > uid_idx and row[uid_idx] == user_id:
+                    found_row_idx = i
+                    break
 
-        # Build row dict from header
-        base = {
-            "user_id": user.get("id"),
-            "email": user.get("email"),
-            "username": (user.get("user_metadata") or {}).get("username"),
-        }
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
         if found_row_idx:
             update_map = {"last_login": now}
-            update_map.update(payload)
+            update_map.update(sanitized_payload)
             for k, v in update_map.items():
                 if k in header:
                     ws.update_cell(found_row_idx, header.index(k) + 1, v)
-
         else:
-            # new row with created_at + last_login
-            base["created_at"] = now
-            base["last_login"] = now
-            base.update({
-                "age": payload.get("age", ""),
-                "monthly_income": payload.get("monthly_income", ""),
-                "monthly_expenses": payload.get("monthly_expenses", ""),
-                "monthly_savings": payload.get("monthly_savings", ""),
-                "monthly_debt": payload.get("monthly_debt", ""),
-                "total_investments": payload.get("total_investments", ""),
-                "net_worth": payload.get("net_worth", ""),
-                "emergency_fund": payload.get("emergency_fund", ""),
-                "last_FHI": payload.get("last_FHI", ""),
-            })
-            row = [base.get(col, "") for col in header]
-            ws.append_row(row, value_input_option="USER_ENTERED")
+            base_data = {
+                "user_id": user_id,
+                "email": user.get("email", ""),
+                "username": (user.get("user_metadata") or {}).get("username", ""),
+                "created_at": now,
+                "last_login": now,
+            }
+            base_data.update(sanitized_payload)
+            
+            row_data = [base_data.get(col, "") for col in header]
+            ws.append_row(row_data, value_input_option="USER_ENTERED")
 
         _invalidate_users_cache()
+        return True
+        
     except Exception as e:
-        st.warning(f"Users upsert error: {e}")
+        st.warning(f"Users upsert error: {str(e)[:100]}...")
+        return False
 
 def load_user_profile_from_sheet(user_id: str) -> dict | None:
     try:
@@ -326,14 +335,26 @@ def require_entry_gate():
         return
 
 def ensure_calc_keys(pdft):
-    st.session_state.setdefault("age", int(pdft.get("age", 25)))
-    st.session_state.setdefault("monthly_income", float(pdft.get("monthly_income", 0.0)))
-    st.session_state.setdefault("monthly_expenses", float(pdft.get("monthly_expenses", 0.0)))
-    st.session_state.setdefault("current_savings", float(pdft.get("monthly_savings", 0.0)))
-    st.session_state.setdefault("monthly_debt", float(pdft.get("monthly_debt", 0.0)))
-    st.session_state.setdefault("total_investments", float(pdft.get("total_investments", 0.0)))
-    st.session_state.setdefault("net_worth", float(pdft.get("net_worth", 0.0)))
-    st.session_state.setdefault("emergency_fund", float(pdft.get("emergency_fund", 0.0)))
+    def safe_int(value, default=25):
+        try:
+            return int(float(value)) if value not in (None, "", "None") else default
+        except (ValueError, TypeError):
+            return default
+    
+    def safe_float(value, default=0.0):
+        try:
+            return float(value) if value not in (None, "", "None") else default
+        except (ValueError, TypeError):
+            return default
+    
+    st.session_state.setdefault("age", safe_int(pdft.get("age", 25)))
+    st.session_state.setdefault("monthly_income", safe_float(pdft.get("monthly_income", 0.0)))
+    st.session_state.setdefault("monthly_expenses", safe_float(pdft.get("monthly_expenses", 0.0)))
+    st.session_state.setdefault("current_savings", safe_float(pdft.get("monthly_savings", 0.0)))
+    st.session_state.setdefault("monthly_debt", safe_float(pdft.get("monthly_debt", 0.0)))
+    st.session_state.setdefault("total_investments", safe_float(pdft.get("total_investments", 0.0)))
+    st.session_state.setdefault("net_worth", safe_float(pdft.get("net_worth", 0.0)))
+    st.session_state.setdefault("emergency_fund", safe_float(pdft.get("emergency_fund", 0.0)))
 
 
 def render_auth_panel():
@@ -421,6 +442,11 @@ def render_auth_panel():
                     
                         if saved.get("consent_ts"):
                             st.session_state["consent_ts"] = saved["consent_ts"]
+                            
+                        if any(st.session_state.get(f, False) for f in
+                               ["consent_processing", "consent_storage", "consent_ai", "analytics_opt_in"]) \
+                           or bool(saved.get("consent_ts")):
+                            st.session_state["consent_given"] = True
 
                         if saved.get("age"): st.session_state["persona_defaults"]["age"] = int(float(saved["age"]))
                         for k_src, k_dst in [
@@ -479,50 +505,76 @@ def initialize_ai():
         return False, None
 
 def get_ai_response(user_question, fhi_context, model):
-    """Get response from Gemini AI"""
-    try:
-        fhi_score = fhi_context.get('FHI', 'Not calculated')
-        income = fhi_context.get('income', 0)
-        expenses = fhi_context.get('expenses', 0)
-        savings = fhi_context.get('savings', 0)
+    """Get response from Gemini AI with improved error handling"""
+    for attempt in range(3):
+        try:
+            if not user_question.strip():
+                return "Please ask a specific financial question."
+            
+            if not check_rate_limit():
+                return "Please wait a moment before asking another question."
 
-        prompt = f"""
-        You are FYNyx, an AI financial advisor specifically designed for Filipino users. You provide practical, culturally-aware financial advice.
+            fhi_score = fhi_context.get('FHI', 'Not calculated')
+            income = fhi_context.get('income', 0)
+            expenses = fhi_context.get('expenses', 0)
+            savings = fhi_context.get('savings', 0)
 
-        IMPORTANT CONTEXT:
-        - User is Filipino, use Philippine financial context
-        - Mention Philippine financial products when relevant (SSS, Pag-IBIG, GSIS, BPI, BDO, etc.)
-        - Use Philippine Peso (₱) in examples
-        - Consider Philippine economic conditions
-        - If the question is not financial, politely redirect to financial topics
+            prompt = f"""
+            You are FYNyx, an AI financial advisor specifically designed for Filipino users. You provide practical, culturally-aware financial advice.
 
-        USER'S FINANCIAL PROFILE:
-        - FHI Score: {fhi_score}/100
-        - Monthly Income: ₱{income:,.0f}
-        - Monthly Expenses: ₱{expenses:,.0f}
-        - Monthly Savings: ₱{savings:,.0f}
+            IMPORTANT CONTEXT:
+            - User is Filipino, use Philippine financial context
+            - Mention Philippine financial products when relevant (SSS, Pag-IBIG, GSIS, BPI, BDO, etc.)
+            - Use Philippine Peso (₱) in examples
+            - Consider Philippine economic conditions
+            - If the question is not financial, politely redirect to financial topics
 
-        USER'S QUESTION: {user_question}
+            USER'S FINANCIAL PROFILE:
+            - FHI Score: {fhi_score}/100
+            - Monthly Income: ₱{income:,.0f}
+            - Monthly Expenses: ₱{expenses:,.0f}
+            - Monthly Savings: ₱{savings:,.0f}
 
-        INSTRUCTIONS:
-        - Provide specific, actionable advice
-        - Keep response under 150 words
-        - Use friendly, encouraging tone
-        - Include specific numbers/percentages when helpful
-        - Mention relevant Philippine financial institutions or products if applicable
-        - If FHI score is low (<50), prioritize emergency fund and debt reduction
-        - If FHI score is medium (50-70), focus on investment and optimization
-        - If FHI score is high (>70), discuss advanced strategies
+            USER'S QUESTION: {user_question}
 
-        Start your response with a brief acknowledgment of their question, then provide clear advice.
-        """
+            INSTRUCTIONS:
+            - Provide specific, actionable advice
+            - Keep response under 150 words
+            - Use friendly, encouraging tone
+            - Include specific numbers/percentages when helpful
+            - Mention relevant Philippine financial institutions or products if applicable
+            - If FHI score is low (<50), prioritize emergency fund and debt reduction
+            - If FHI score is medium (50-70), focus on investment and optimization
+            - If FHI score is high (>70), discuss advanced strategies
 
-        response = model.generate_content(prompt)
-        return response.text
+            Start your response with a brief acknowledgment of their question, then provide clear advice.
+            """
 
-    except Exception as e:
-        st.error(f"AI temporarily unavailable: {str(e)}")
-        return get_fallback_response(user_question, fhi_context)
+            response = model.generate_content(prompt)
+            
+            if not response or not response.text:
+                raise ValueError("Empty response from AI")
+                
+            return response.text.strip()
+
+        except Exception as e:
+            if attempt == 2:
+                return get_fallback_response(user_question, fhi_context)
+            
+    return get_fallback_response(user_question, fhi_context)
+
+def check_rate_limit():
+    current_time = datetime.now()
+    if "last_api_call" not in st.session_state:
+        st.session_state.last_api_call = current_time
+        return True
+    
+    time_diff = (current_time - st.session_state.last_api_call).total_seconds()
+    if time_diff < 2:
+        return False
+    
+    st.session_state.last_api_call = current_time
+    return True
 
 def get_fallback_response(user_question, fhi_context):
     """Fallback responses when AI is unavailable"""
@@ -578,15 +630,29 @@ def get_fallback_response(user_question, fhi_context):
 def validate_financial_inputs(income, expenses, debt, savings):
     errors = []
     warnings = []
+    
+    if any(val < 0 for val in [income, expenses, debt, savings]):
+        errors.append("❌ All values must be non-negative")
+        return errors, warnings
+    
+    if debt > income * 2:
+        errors.append("⚠️ Monthly debt payments seem unrealistically high")
+    elif debt > income:
+        warnings.append("⚠️ Your monthly debt payments exceed your income")
 
-    if debt > income:
-        errors.append("⚠️ Your monthly debt payments exceed your income")
-
-    if expenses > income:
+    if expenses > income * 1.5:
+        errors.append("⚠️ Monthly expenses seem unrealistically high")
+    elif expenses > income:
         warnings.append("⚠️ Your monthly expenses exceed your income")
 
-    if savings + expenses + debt > income * 1.1:
-        warnings.append("⚠️ Your total monthly obligations seem high relative to income")
+    total_obligations = expenses + debt + savings
+    if total_obligations > income * 1.2:
+        warnings.append("⚠️ Your total monthly obligations are very high relative to income")
+
+    if income > 0:
+        savings_rate = (savings / income) * 100
+        if savings_rate > 80:
+            warnings.append("⚠️ Savings rate over 80% seems unusually high")
 
     return errors, warnings
 
@@ -844,8 +910,6 @@ def init_privacy_state():
     st.session_state.setdefault("consent_given", False)
     st.session_state.setdefault("consent_ts", None)
     st.session_state.setdefault("show_privacy", False)
-
-
         
 def save_user_consents(user_id_email_meta):
     user_stub = {
@@ -1176,9 +1240,12 @@ if st.session_state.get("show_privacy", False) or not st.session_state.get("cons
     render_consent_card()
 
 # Header with status badge
-st.title("⌧ Fynstra " + st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_allow_html=True)._repr_html_() if False else "⌧ Fynstra")
-st.markdown("### AI-Powered Financial Health Platform for Filipinos")
-st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_allow_html=True)
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.title("⌧ Fynstra")
+    st.markdown("### AI-Powered Financial Health Platform for Filipinos")
+with col2:
+    st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_allow_html=True)
 
 try:
     ensure_tables()
