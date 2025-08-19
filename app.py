@@ -263,6 +263,69 @@ def sign_out():
     for k in ["auth_method","user_id","email","display_name"]:
         st.session_state.pop(k, None)
 
+def set_guest_identity():
+    # minimal guest identity
+    st.session_state["auth_method"] = "guest"
+    st.session_state["user_id"] = _anon_id()
+    st.session_state["email"] = None
+    st.session_state["display_name"] = "Guest"
+
+def require_entry_gate():
+    """Block the app until the user chooses login, signup, or guest."""
+    init_auth_state()  # you already have this
+
+    # If already logged in via Supabase, let them through
+    if st.session_state.auth.get("user"):
+        st.session_state["entry_mode"] = "auth"
+        return
+
+    # Initialize the gate state
+    if "entry_mode" not in st.session_state:
+        st.session_state.entry_mode = None
+
+    # If no choice yet, show the gate and stop the app
+    if st.session_state.entry_mode is None:
+        st.title("👋 Welcome to Fynstra")
+        st.caption("Please choose how you want to continue:")
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("🔐 Log in", use_container_width=True):
+                st.session_state.entry_mode = "auth_login"
+                st.rerun()
+        with col2:
+            if st.button("🆕 Sign up", use_container_width=True):
+                st.session_state.entry_mode = "auth_signup"
+                st.rerun()
+        with col3:
+            if st.button("🚶 Continue as guest", type="secondary", use_container_width=True):
+                st.session_state.entry_mode = "guest"
+                set_guest_identity()
+                st.rerun()
+
+        st.stop()
+
+    # If they chose auth but haven't logged in yet, show your auth panel only
+    if st.session_state.entry_mode in ("auth_login", "auth_signup", "auth"):
+        # Optional: header to make it clear they’re at the gate
+        st.subheader("Account access")
+        render_auth_panel()  # your existing function shows Sign up / Log in
+
+        # Provide an escape to guest
+        st.divider()
+        if st.button("← Continue as guest instead"):
+            st.session_state.entry_mode = "guest"
+            set_guest_identity()
+            st.rerun()
+
+        # Block dashboard until they log in or choose guest
+        st.stop()
+
+    # If guest chosen, proceed (identity already set)
+    if st.session_state.entry_mode == "guest":
+        return
+
+
 def render_auth_panel():
     supabase = init_supabase()
     init_auth_state()
@@ -1124,6 +1187,14 @@ initialize_session_state()
 init_persona_state()
 init_privacy_state()
 AI_AVAILABLE, model = initialize_ai()
+require_entry_gate()
+
+if st.button("⚙️ Privacy & consent settings"):
+    st.session_state.show_privacy = True
+    st.rerun()
+
+if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_processing", False):
+    render_consent_card()
 
 # Header with status badge
 st.title("⌧ Fynstra " + st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_allow_html=True)._repr_html_() if False else "⌧ Fynstra")
@@ -1136,13 +1207,6 @@ except Exception as e:
     st.warning(f"Could not ensure Sheets tables yet: {e}")
 
 render_auth_panel()
-
-if st.button("⚙️ Privacy & consent settings"):
-    st.session_state.show_privacy = True
-    st.rerun()
-
-if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_processing", False):
-    render_consent_card()
 
 if AI_AVAILABLE:
     st.success("🤖 FYNyx AI is online and ready to help!")
