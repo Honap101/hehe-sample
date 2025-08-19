@@ -1343,12 +1343,35 @@ def render_consent_card():
                 )
 
             with c2:
-                st.radio(
-                    "Chat data retention",
-                    options=["session", "ephemeral"],
-                    key="retention_mode",
+                # Plain-language labels mapped to your existing internal values
+                _retention_labels = {
+                    "Keep recent chat (recommended)": "session",
+                    "Only keep the last Q&A (privacy)": "ephemeral",
+                }
+                
+                # Respect whatever is already in session_state to set the default label
+                _current_internal = st.session_state.get("retention_mode", "session")
+                _current_label = next((k for k, v in _retention_labels.items() if v == _current_internal),
+                                      "Keep recent chat (recommended)")
+                
+                choice = st.radio(
+                    "Chat history",
+                    options=list(_retention_labels.keys()),
+                    index=list(_retention_labels.keys()).index(_current_label),
                     horizontal=True,
+                    help=(
+                        "Controls only the chat panel in this app. "
+                        "'Keep recent chat' shows your last few messages. "
+                        "'Only keep the last Q&A' shows only your latest question and my reply."
+                    ),
                 )
+                
+                # Map the friendly label back to your original values used elsewhere
+                st.session_state["retention_mode"] = _retention_labels[choice]
+                
+                # Extra clarity under the control
+                st.caption("This doesn’t save anything to Google Sheets and doesn’t change what’s sent to the AI.")
+
                 st.checkbox(
                     "Allow anonymized analytics (counts only)",
                     key="analytics_opt_in",
@@ -2274,4 +2297,13 @@ st.markdown("*Developed by Team HI-4requency for DataWave 2025*")
 # ===============================
 
 render_floating_chat(AI_AVAILABLE, model)
+# Small mode hint so users always know what will happen to their chat
+_mode = st.session_state.get("retention_mode", "session")
+_hint = ("Keeping recent chat until you close the tab."
+         if _mode == "session"
+         else "Showing only your latest Q&A for privacy.")
+st.markdown(
+    f"<div class='fynyx-meta' style='padding:6px 12px'>{_hint}</div>",
+    unsafe_allow_html=True
+)
 
