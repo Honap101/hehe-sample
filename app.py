@@ -826,19 +826,25 @@ def apply_persona(preset_name):
 CONSENT_VERSION = "v1"
 
 def init_privacy_state():
+    """
+    Sticky & idempotent: restore previously saved flags first,
+    then set first-run defaults without overwriting existing values.
+    """
+    # 1) Restore from a snapshot if it exists (we set this on Save)
     snap = st.session_state.get("__consent_snapshot")
     if isinstance(snap, dict):
         for k, v in snap.items():
             if k not in st.session_state:
                 st.session_state[k] = v
 
+    # 2) First-run defaults (do NOT overwrite anything already set)
     defaults = {
         "consent_processing": False,
         "consent_storage": False,
         "consent_ai": False,
-        "retention_mode": "session",    # 'session' or 'ephemeral'
+        "retention_mode": "session",
         "analytics_opt_in": False,
-        "consent_given": False,         # legacy/compatibility
+        "consent_given": False,
         "consent_ts": None,
     }
     for k, v in defaults.items():
@@ -907,7 +913,6 @@ def render_consent_card():
             st.session_state.consent_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             st.session_state.consent_given = True
             
-            # Persist a sticky snapshot so future reruns restore the same values
             st.session_state["__consent_snapshot"] = {
                 "consent_processing": st.session_state.get("consent_processing", False),
                 "consent_storage":    st.session_state.get("consent_storage", False),
@@ -1203,15 +1208,16 @@ if "anon_id" not in st.session_state:
 AI_AVAILABLE, model = initialize_ai()
 require_entry_gate()
 
-# Show settings button
 if st.button("⚙️ Privacy & consent settings"):
     st.session_state.show_privacy = True
     st.rerun()
 
-# Only show the consent card when explicitly requested OR required
+# This check must be AFTER init_privacy_state() above
 if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_processing", False):
     render_consent_card()
-    # render_consent_card() will set show_privacy=False on save
+
+if st.session_state.get("entry_mode") in ("auth", "auth_login", "auth_signup"):
+    render_auth_panel()
 
 # Header with status badge
 st.title("⌧ Fynstra " + st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_allow_html=True)._repr_html_() if False else "⌧ Fynstra")
