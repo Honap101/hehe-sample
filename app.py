@@ -119,10 +119,180 @@ def consent_required_or_stop():
 def append_row_safe(ws, row):
     with_backoff(lambda: ws.append_row(row, value_input_option="USER_ENTERED"))
 
+CALCS_SHEET = "FHI_Calcs"
+CHAT_EVENTS_SHEET = "Chat_Events"
+WHATIF_SHEET = "WhatIf_Runs"   # optional
 
-# ===============================
-# GOOGLE SHEETS: TABLES HELPERS
-# ===============================
+FHI_FORMULA_VERSION = "2025.02"
+APP_VERSION = "0.9.0"
+
+def fhi_band(score: float) -> str:
+    if score < 50: return "Poor"
+    if score < 70: return "Fair"
+    if score < 85: return "Good"
+    return "Excellent"
+
+def compute_derived_metrics(mi, me, ms, md, inv, nw, ef) -> dict:
+    """Derived KPIs to make logs more useful (rounded for readability)."""
+    def r(x, n=2): 
+        try: return round(float(x), n)
+        except: return 0.0
+    savings_rate_pct = r((ms/mi)*100, 1) if mi > 0 else 0.0
+    dti_pct          = r((md/mi)*100, 1) if mi > 0 else 0.0
+    months_efund     = r((ef/me), 2) if me > 0 else 0.0
+    ef_target_months = 6
+    ef_gap_amount    = r(max(0.0, ef_target_months*me - ef), 0)
+    invest_to_inc    = r((inv/(mi*12))*100, 1) if mi > 0 else 0.0
+    nwincome_x       = r((nw/(mi*12)), 2) if mi > 0 else 0.0
+    return {
+        "savings_rate_pct": savings_rate_pct,
+        "dti_pct": dti_pct,
+        "months_efund": months_efund,
+        "efund_target_months": ef_target_months,
+        "efund_gap_amount": ef_gap_amount,
+        "invest_to_income_pct": invest_to_inc,
+        "networth_to_income_x": nwincome_x,
+    }
+
+def _sheet_header(ws):
+    try:
+        return ws.row_values(1)
+    except Exception:
+        return []
+
+def append_calc_log(FHI_rounded, components, inputs, warnings_list):
+    """Write a detailed row into FHI_Calcs and store calc_id in session for joins."""
+    if not st.session_state.get("consent_storage", False):
+        return None  # respect user choice
+
+    try:
+        sh = open_sheet()
+        ws = sh.worksheet(CALCS_SHEET)
+        header = _sheet_header(ws)
+
+        calc_id = uuid.uuid4().hex[:12]
+        ident = get_user_identity()
+        kpis = compute_derived_metrics(
+            inputs["income"], inputs["expenses"], inputs["savings"], inputs["debt"],
+            inputs["investments"], inputs["net_worth"], inputs["emergency_fund"]
+        )
+
+        row_map = {
+            "calc_id": calc_id,
+            "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "auth_method": ident["auth_method"],
+            "user_id": ident["user_id"],
+            "email": ident.get("email"),
+            "display_name": ident.get("display_name"),
+            "persona": st.session_state.get("persona_active"),
+            "app_version": APP_VERSION,
+
+            "consent_processing": st.session_state.get("consent_processing", False),
+            "consent_storage": st.session_state.get("consent_storage", False),
+            "consent_ai": st.session_state.get("consent_ai", False),
+            "analytics_opt_in": st.session_state.get("analytics_opt_in", False),
+            "consent_version": CONSENT_VERSION,
+            "retention_mode": st.session_state.get("retention_mode", "session"),
+
+            "age": inputs.get("age"),
+            "monthly_income": inputs.get("income"),
+            "monthly_expenses": inputs.get("expenses"),
+            "monthly_savings": inputs.get("savings"),
+            "monthly_debt": inputs.get("debt"),
+            "total_investments": inputs.get("investments"),
+            "net_worth": inputs.get("net_worth"),
+            "emergency_fund": inputs.get("emergency_fund"),
+
+            "FHI": FHI_rounded,
+            "FHI_band": fhi_band(FHI_rounded),
+            "NetWorth_component": round(components.get("Net Worth", 0), 1),
+            "DTI_component": round(components.get("Debt-to-Income", 0), 1),
+            "Savings_component": round(components.get("Savings Rate", 0), 1),
+            "Invest_component": round(components.get("Investment", 0), 1),
+            "Emergency_component": round(components.get("Emergency Fund", 0), 1),
+
+            "savings_rate_pct": kpis["savings_rate_pct"],
+            "dti_pct": kpis["dti_pct"],
+            "months_efund": kpis["months_efund"],
+            "efund_target_months": kpis["efund_target_months"],
+            "efund_gap_amount": kpis["efund_gap_amount"],
+            "invest_to_income_pct": kpis["invest_to_income_pct"],
+            "networth_to_income_x": kpis["networth_to_income_x"],
+
+            "warnings": " ; ".join(warnings_list) if warnings_list else "",
+            "fhi_formula_version": FHI_FORMULA_VERSION,
+        }
+
+        append_row_safe(ws, [row_map.get(col, "") for col in header])
+        st.session_state["last_calc_id"] = calc_id
+        return calc_id
+    except Exception as e:
+        st.warning(f"Calc log error: {e}")
+        return None
+
+def classify_intent(text: str) -> str:
+    t = (text or "").lower()
+    if any(k in t for k in ["emergency", "buffer", "rainy day"]): return "emergency_fund"
+    if any(k in t for k in ["debt", "loan", "credit", "interest"]): return "debt"
+    if any(k in t for k in ["invest", "stock", "fund", "bond", "mp2", "pera"]): return "investing"
+    if any(k in t for k in ["save", "budget", "spend", "expense"]): return "savings_budget"
+    if any(k in t for k in ["retire", "sss", "gsis"]): return "retirement"
+    return "general"
+
+def append_chat_event(calc_id: str, question: str, response: str, was_ai: bool, fhi_at_time: float):
+    """Logs *only* metadata (no raw text) if analytics+storage are allowed."""
+    if not (st.session_state.get("consent_storage", False) and st.session_state.get("analytics_opt_in", False)):
+        return
+    try:
+        sh = open_sheet()
+        ws = sh.worksheet(CHAT_EVENTS_SHEET)
+        header = _sheet_header(ws)
+        ident = get_user_identity()
+        row_map = {
+            "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "user_id": ident["user_id"],
+            "auth_method": ident["auth_method"],
+            "calc_id": calc_id or st.session_state.get("last_calc_id"),
+            "FHI_at_time": fhi_at_time,
+            "intent": classify_intent(question),
+            "was_ai": bool(was_ai),
+            "retention_mode": st.session_state.get("retention_mode", "session"),
+            "len_question": len(question or ""),
+            "len_response": len(response or ""),
+        }
+        append_row_safe(ws, [row_map.get(col, "") for col in header])
+    except Exception as e:
+        st.warning(f"Chat log error: {e}")
+
+def append_whatif_run(name: str, base_fhi: float, new_fhi: float,
+                      pct_deltas: dict, abs_deltas: dict):
+    if not st.session_state.get("consent_storage", False):
+        return
+    try:
+        sh = open_sheet()
+        ws = sh.worksheet(WHATIF_SHEET)
+        header = _sheet_header(ws)
+        row_map = {
+            "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "user_id": get_user_identity()["user_id"],
+            "calc_id": st.session_state.get("last_calc_id"),
+            "scenario_name": name,
+            "base_FHI": round(base_fhi, 1),
+            "scenario_FHI": round(new_fhi, 1),
+            "delta_FHI": round(new_fhi - base_fhi, 1),
+            "income_pct": pct_deltas.get("income_pct", 0),
+            "expenses_pct": pct_deltas.get("expenses_pct", 0),
+            "savings_pct": pct_deltas.get("savings_pct", 0),
+            "debt_pct": pct_deltas.get("debt_pct", 0),
+            "invest_pct": pct_deltas.get("invest_pct", 0),
+            "efund_pct": pct_deltas.get("efund_pct", 0),
+            "debt_abs_delta": abs_deltas.get("debt_abs_delta", 0),
+            "savings_abs_delta": abs_deltas.get("savings_abs_delta", 0),
+        }
+        append_row_safe(ws, [row_map.get(col, "") for col in header])
+        st.toast("Scenario saved", icon="✅")
+    except Exception as e:
+        st.warning(f"Scenario log error: {e}")
 
 USERS_SHEET = "Users"
 AUTH_EVENTS_SHEET = "Auth_Events"
@@ -153,6 +323,50 @@ def ensure_tables():
     except gspread.WorksheetNotFound:
         ws = sh.add_worksheet(AUTH_EVENTS_SHEET, rows=5000, cols=10)
         ws.append_row(["ts","event","user_id","email","username","note"])
+
+    # Detailed calculation log (append-only, one row per calc)
+    try:
+        sh.worksheet(CALCS_SHEET)
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(CALCS_SHEET, rows=10000, cols=60)
+        ws.append_row([
+            # identity & meta
+            "calc_id","ts","auth_method","user_id","email","display_name","persona","app_version",
+            # consents snapshot
+            "consent_processing","consent_storage","consent_ai","analytics_opt_in","consent_version","retention_mode",
+            # inputs
+            "age","monthly_income","monthly_expenses","monthly_savings","monthly_debt",
+            "total_investments","net_worth","emergency_fund",
+            # outputs
+            "FHI","FHI_band","NetWorth_component","DTI_component","Savings_component","Invest_component","Emergency_component",
+            # derived KPIs
+            "savings_rate_pct","dti_pct","months_efund","efund_target_months","efund_gap_amount",
+            "invest_to_income_pct","networth_to_income_x",
+            # quality/flags
+            "warnings","fhi_formula_version"
+        ])
+
+    # Chat analytics (privacy-minded, no raw text)
+    try:
+        sh.worksheet(CHAT_EVENTS_SHEET)
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(CHAT_EVENTS_SHEET, rows=20000, cols=20)
+        ws.append_row([
+            "ts","user_id","auth_method","calc_id","FHI_at_time","intent","was_ai",
+            "retention_mode","len_question","len_response"
+        ])
+
+    # Optional: what-if scenarios
+    try:
+        sh.worksheet(WHATIF_SHEET)
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(WHATIF_SHEET, rows=10000, cols=30)
+        ws.append_row([
+            "ts","user_id","calc_id","scenario_name","base_FHI","scenario_FHI","delta_FHI",
+            "income_pct","expenses_pct","savings_pct","debt_pct","invest_pct","efund_pct",
+            "debt_abs_delta","savings_abs_delta"
+        ])
+
 
 @st.cache_data(show_spinner=False)
 def _get_users_sheet_values():
@@ -770,9 +984,9 @@ def get_fallback_response(user_question, fhi_context):
         else:
             return "Great financial health! Consider advanced strategies: real estate investment, business opportunities, or international diversification. Consult a certified financial planner."
 
-# ===============================
+# ===================================
 # CALCULATION & VALIDATION FUNCTIONS
-# ===============================
+# ===================================
 
 def validate_financial_inputs(income, expenses, debt, savings):
     errors = []
@@ -820,9 +1034,9 @@ def calculate_fhi(age, monthly_income, monthly_expenses, monthly_savings, monthl
 
     return FHI, components
 
-# ===============================
+# ================================
 # CHART & VISUALIZATION FUNCTIONS
-# ===============================
+# ================================
 
 def create_gauge_chart(fhi_score):
     fig = go.Figure(go.Indicator(
@@ -1162,9 +1376,9 @@ Generated by Fynstra AI - Your Personal Financial Health Platform
 """
     return report_text
 
-# ===============================
+# =================================
 # WHAT-IF & EXPLAINABILITY HELPERS
-# ===============================
+# =================================
 
 def get_component_weights():
     # Match your FHI formula (sum(weights)=0.85; base bump=15)
@@ -1265,9 +1479,9 @@ def apply_persona(preset_name):
     st.session_state["monthly_expenses"] = data.get("monthly_expenses", 0.0)
     st.session_state["current_savings"]  = data.get("monthly_savings", 0.0)
 
-# ===============================
+# ===================================
 # CONSENT, PRIVACY & STORAGE HELPERS
-# ===============================
+# ===================================
 CONSENT_VERSION = "v1"
 
 def init_privacy_state():
@@ -1540,9 +1754,9 @@ def basic_mode_badge(ai_available: bool) -> str:
            ("<span style='padding:2px 8px;border-radius:9999px;background:#fee2e2;color:#7f1d1d;font-weight:600;font-size:12px;'>"
             "Basic Mode</span>")
 
-# -------------------------------
+# ===============================
 # Results flow (survives reruns)
-# -------------------------------
+# ===============================
 
 def handle_calculation_click(
     age, monthly_income, monthly_expenses, monthly_savings,
@@ -1941,6 +2155,15 @@ def render_floating_chat(ai_available, model):
                 "fhi_context": fhi_context,
                 "was_ai_response": was_ai,
             })
+            try:
+                append_chat_event(
+                    calc_id=st.session_state.get("last_calc_id"),
+                    question=q, response=response, was_ai=was_ai,
+                    fhi_at_time=fhi_context.get("FHI", 0)
+                )
+            except Exception:
+                pass
+
             prune_chat_history()
             st.rerun()
 
@@ -2177,7 +2400,19 @@ with tab_calc:
                 base_inputs["age"], scen["income"], scen["expenses"], scen["savings"],
                 scen["debt"], scen["invest"], scen["networth"], scen["efund"]
             )
-        
+
+            if st.button("💾 Save this scenario to Google Sheet"):
+                append_whatif_run(
+                    name="Custom scenario",
+                    base_fhi=base_fhi, new_fhi=new_fhi,
+                    pct_deltas={
+                        "income_pct": income_pct, "expenses_pct": expenses_pct,
+                        "savings_pct": savings_pct, "debt_pct": debt_pct,
+                        "invest_pct": invest_pct, "efund_pct": efund_pct,
+                    },
+                    abs_deltas={"debt_abs_delta": debt_abs_delta, "savings_abs_delta": savings_abs_delta},
+                )
+
             # --- Headline metrics
             c5, c6, c7 = st.columns(3)
             with c5:
@@ -2212,9 +2447,7 @@ with tab_calc:
                     bullets.append("**Declined:** " + ", ".join([f"{k} ({v:+.1f})" for k, v in down]))
                 st.markdown(" • " + "\n • ".join(bullets))
         
-        # -------------------------------
-        # Explainability Drawer
-        # -------------------------------
+        # Explainability
         with st.expander("🧠 How this score is computed (explainability)"):
             st.caption("We combine five component scores with fixed weights, plus a constant base score. Higher is better.")
             w = get_component_weights()
@@ -2268,8 +2501,8 @@ with tab_goals:
                     goal_months = st.number_input("Time to Goal (months)", min_value=1, max_value=120, step=1)
     
                 with col2:
-                    current_savings = st.session_state.get("current_savings", 0)
-                    monthly_savings = st.session_state.get("current_savings", 0)
+                    current_savings = st.session_state.get("current_savings", 0.0)
+                    monthly_savings = st.session_state.get("inputs_for_pdf", {}).get("savings", 0.0)
     
                     if goal_amount > 0 and goal_months > 0:
                         needed_monthly = (goal_amount - current_savings) / goal_months if goal_amount > current_savings else 0
@@ -2292,9 +2525,9 @@ st.markdown("---")
 st.markdown("**Fynstra AI** - Empowering Filipinos to **F**orecast, **Y**ield, and **N**avigate their financial future with confidence.")
 st.markdown("*Developed by Team HI-4requency for DataWave 2025*")
 
-# ===============================
+# ====================================
 # RENDER FLOATING CHAT (on all pages)
-# ===============================
+# ====================================
 
 render_floating_chat(AI_AVAILABLE, model)
 # Small mode hint so users always know what will happen to their chat
