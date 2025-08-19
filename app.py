@@ -2487,7 +2487,7 @@ with tab_calc:
                 scen["debt"], scen["invest"], scen["networth"], scen["efund"]
             )
 
-            if st.button("💾 Save this scenario to Google Sheet"):
+            if st.button("💾 Save this Scenario"):
                 append_whatif_run(
                     name="Custom scenario",
                     base_fhi=base_fhi, new_fhi=new_fhi,
