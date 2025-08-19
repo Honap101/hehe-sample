@@ -828,14 +828,10 @@ CONSENT_VERSION = "v1"
 def init_privacy_state():
     """
     Sticky + idempotent consent init.
-    - Uses a single 'consent_ready' switch to persist the user's saved choice.
-    - Never overwrites existing values during a rerun.
+    Uses one switch (consent_ready) and a snapshot dict to restore consents
+    *before* any UI decides to show the consent card.
     """
-
-    # last saved snapshot (set after user clicks Save)
-    snap = st.session_state.get("__consent_snapshot")
-
-    # first-run defaults (do NOT overwrite existing)
+    # First-run defaults (never overwrite existing values)
     defaults = {
         "consent_processing": False,
         "consent_storage": False,
@@ -844,28 +840,24 @@ def init_privacy_state():
         "analytics_opt_in": False,
         "consent_given": False,
         "consent_ts": None,
-        "consent_ready": False,   # <— NEW: one-bit switch meaning "user saved"
+        "consent_ready": False,           # <-- user has saved preferences at least once
+        "__consent_snapshot": None,       # <-- last saved values
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
-    # If the user already saved once, restore their flags deterministically
-    if st.session_state.get("consent_ready"):
-        # prefer latest snapshot if present
-        if isinstance(snap, dict):
-            st.session_state["consent_processing"] = bool(snap.get("consent_processing", True))
-            st.session_state["consent_storage"]    = bool(snap.get("consent_storage",    st.session_state["consent_storage"]))
-            st.session_state["consent_ai"]         = bool(snap.get("consent_ai",         True))
-            st.session_state["retention_mode"]     = snap.get("retention_mode", "session")
-            st.session_state["analytics_opt_in"]   = bool(snap.get("analytics_opt_in",   False))
-            st.session_state["consent_given"]      = True
-            st.session_state["consent_ts"]         = snap.get("consent_ts", st.session_state["consent_ts"])
-        else:
-            # no snapshot? then just ensure processing & AI stay True after first save
-            st.session_state["consent_processing"] = True
-            st.session_state["consent_ai"] = True
-
+    # If the user already saved once, *force-restore* from the snapshot
+    if st.session_state.get("consent_ready") and isinstance(st.session_state["__consent_snapshot"], dict):
+        snap = st.session_state["__consent_snapshot"]
+        # Force these to the last saved choices so reruns can't blank them
+        st.session_state["consent_processing"] = bool(snap.get("consent_processing", True))
+        st.session_state["consent_ai"]         = bool(snap.get("consent_ai", True))
+        st.session_state["consent_storage"]    = bool(snap.get("consent_storage", False))
+        st.session_state["retention_mode"]     = snap.get("retention_mode", "session")
+        st.session_state["analytics_opt_in"]   = bool(snap.get("analytics_opt_in", False))
+        st.session_state["consent_given"]      = True
+        st.session_state["consent_ts"]         = snap.get("consent_ts", st.session_state["consent_ts"])
 
 def save_user_consents(user_id_email_meta):
     user_stub = {
@@ -928,7 +920,7 @@ def render_consent_card():
             st.session_state.consent_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             st.session_state.consent_given = True
             
-            # Create a sticky snapshot of current choices
+            # Sticky snapshot (source of truth on future reruns)
             st.session_state["__consent_snapshot"] = {
                 "consent_processing": st.session_state.get("consent_processing", False),
                 "consent_storage":    st.session_state.get("consent_storage", False),
@@ -937,21 +929,25 @@ def render_consent_card():
                 "analytics_opt_in":   st.session_state.get("analytics_opt_in", False),
                 "consent_ts":         st.session_state.get("consent_ts"),
             }
+            st.session_state["consent_ready"] = True  # <-- KEY: drives UI
             
-            # Mark that the user already saved once; future reruns must respect it
-            st.session_state["consent_ready"] = True
-            
-            # Persist to Sheets only if logged in (your existing code)
-            if st.session_state.get("user_id"):
-                save_user_consents({
-                    "id": st.session_state["user_id"],
-                    "email": st.session_state.get("email"),
-                    "display_name": st.session_state.get("display_name"),
-                })
+            # (keep your existing persist-to-Sheets block here if logged in)
             
             st.session_state.show_privacy = False
             st.success("Preferences saved")
             st.rerun()
+            
+def consent_ok() -> bool:
+    """
+    Use the sticky switch + snapshot to decide if features can run.
+    This avoids flicker when live flags briefly read False during reruns.
+    """
+    if st.session_state.get("consent_ready") and isinstance(st.session_state.get("__consent_snapshot"), dict):
+        snap = st.session_state["__consent_snapshot"]
+        return bool(snap.get("consent_processing")) and bool(snap.get("consent_ai"))
+    # Before first save, fall back to live flags
+    return bool(st.session_state.get("consent_processing")) and bool(st.session_state.get("consent_ai"))
+
 
 def hash_string(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()[:12]
@@ -1173,8 +1169,7 @@ def render_floating_chat(ai_available, model):
 
         # Footer: input + actions
         st.markdown("<div class='fynyx-chat-footer'>", unsafe_allow_html=True)
-        form_disabled = not (st.session_state.get("consent_processing", False) and
-                             st.session_state.get("consent_ai", False))
+        form_disabled = not consent_ok()
 
         with st.form(key="fyn_chat_form", clear_on_submit=True):
             q = st.text_input("Ask FYNyx", value="", placeholder="e.g., How can I build my emergency fund?", disabled=form_disabled)
@@ -1216,8 +1211,9 @@ def render_floating_chat(ai_available, model):
 
 initialize_session_state()
 init_persona_state()
-init_privacy_state()
+init_privacy_state()    # <-- must run BEFORE any checks/UI
 
+# stable guest id early
 if "anon_id" not in st.session_state:
     st.session_state.anon_id = hashlib.sha256(str(uuid.uuid4()).encode()).hexdigest()[:12]
 
@@ -1228,9 +1224,10 @@ if st.button("⚙️ Privacy & consent settings"):
     st.session_state.show_privacy = True
     st.rerun()
 
-# This check must be AFTER init_privacy_state() above
-if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_processing", False):
+# Show the card only if explicitly requested OR user has never saved yet
+if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_ready", False):
     render_consent_card()
+
 
 if st.session_state.get("entry_mode") in ("auth", "auth_login", "auth_signup"):
     render_auth_panel()
