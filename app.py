@@ -1172,7 +1172,7 @@ if st.button("⚙️ Privacy & consent settings"):
     st.session_state.show_privacy = True
     st.rerun()
 
-if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_processing", False):
+if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_given", False):
     render_consent_card()
 
 # Header with status badge
