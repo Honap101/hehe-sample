@@ -804,40 +804,51 @@ def render_consent_card():
 
         with st.form("privacy_form", clear_on_submit=False):
             c1, c2 = st.columns(2)
-            with c1:
-                consent_processing = st.checkbox("Allow processing to compute FHI (required)",
-                                                 value=st.session_state.get("consent_processing", False))
-                consent_storage = st.checkbox("Allow saving my profile & calculations to Google Sheets",
-                                              value=st.session_state.get("consent_storage", False))
-                consent_ai = st.checkbox("Allow sending my questions/context to the AI provider",
-                                         value=st.session_state.get("consent_ai", False))
-            with c2:
-                retention_mode = st.radio("Chat data retention",
-                                          options=["session","ephemeral"],
-                                          index=(0 if st.session_state.get("retention_mode","session")=="session" else 1),
-                                          horizontal=True)
-                analytics_opt_in = st.checkbox("Allow anonymized analytics (counts only)",
-                                               value=st.session_state.get("analytics_opt_in", False))
 
-            save_disabled = not consent_processing
-            submitted = st.form_submit_button("Save privacy preferences", type="primary", disabled=save_disabled)
+            with c1:
+                # Bind directly to session_state via explicit keys
+                st.checkbox(
+                    "Allow processing to compute FHI (required)",
+                    key="consent_processing",
+                )
+                st.checkbox(
+                    "Allow saving my profile & calculations to Google Sheets",
+                    key="consent_storage",
+                )
+                st.checkbox(
+                    "Allow sending my questions/context to the AI provider",
+                    key="consent_ai",
+                )
+
+            with c2:
+                st.radio(
+                    "Chat data retention",
+                    options=["session", "ephemeral"],
+                    key="retention_mode",
+                    horizontal=True,
+                )
+                st.checkbox(
+                    "Allow anonymized analytics (counts only)",
+                    key="analytics_opt_in",
+                )
+
+            # Don't disable the button — validate after click
+            submitted = st.form_submit_button("Save privacy preferences", type="primary")
 
         if submitted:
-            # persist in session
-            st.session_state.consent_processing = consent_processing
-            st.session_state.consent_storage = consent_storage
-            st.session_state.consent_ai = consent_ai
-            st.session_state.retention_mode = retention_mode
-            st.session_state.analytics_opt_in = analytics_opt_in
+            if not st.session_state.get("consent_processing", False):
+                st.error("You must allow processing to compute FHI.")
+                return
+
             st.session_state.consent_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             st.session_state.consent_given = True
 
-            # optionally persist to Sheets if logged in
+            # Persist to Sheets only if logged in
             if st.session_state.get("user_id"):
                 save_user_consents({
                     "id": st.session_state["user_id"],
                     "email": st.session_state.get("email"),
-                    "display_name": st.session_state.get("display_name")
+                    "display_name": st.session_state.get("display_name"),
                 })
 
             st.session_state.show_privacy = False
@@ -932,6 +943,8 @@ def initialize_session_state():
         st.session_state.user_question = ""
     if "auto_process_question" not in st.session_state:
         st.session_state.auto_process_question = False
+    if "show_privacy" not in st.session_state:
+        st.session_state.show_privacy = False
 
 # ===============================
 # HELPER: FLOATING CHAT WIDGET
