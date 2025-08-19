@@ -1543,6 +1543,8 @@ def initialize_session_state():
         st.session_state.auto_process_question = False
     if "show_privacy" not in st.session_state:
         st.session_state.show_privacy = False
+    if "report_pdf" not in st.session_state:
+        st.session_state.report_pdf = None
 
 # ===============================
 # HELPER: FLOATING CHAT WIDGET
@@ -1928,15 +1930,14 @@ with tab_calc:
                 except Exception as e:
                     st.warning(f"Could not log to Google Sheet: {e}")
         
-                # --- Persist to session for downstream UI
-                st.session_state["FHI"] = FHI_rounded
-                st.session_state["monthly_income"] = monthly_income
-                st.session_state["monthly_expenses"] = monthly_expenses
-                st.session_state["current_savings"] = monthly_savings
-                st.session_state["components"] = components
+            # --- Persist to session for downstream UI
+            st.session_state["FHI"] = FHI_rounded
+            st.session_state["monthly_income"] = monthly_income
+            st.session_state["monthly_expenses"] = monthly_expenses
+            st.session_state["current_savings"] = monthly_savings
+            st.session_state["components"] = components
     
                 st.markdown("---")
-    
                 score_col, text_col = st.columns([1, 2])
     
                 with score_col:
@@ -2011,15 +2012,13 @@ with tab_calc:
                               f"{components['Emergency Fund'] - peer_data['Emergency Fund']:+.0f}% vs peers")
                 
                 # --- In your calculator results area ---
-                if st.button("📄 Generate Report"):
-                    # Collect inputs from current state (fallbacks included)
+                if st.button("📄 Generate Report", key="gen_pdf"):
                     fhi = float(st.session_state.get("FHI", 0.0))
                     comps = st.session_state.get("components", {
                         "Net Worth": 0, "Debt-to-Income": 0, "Savings Rate": 0, "Investment": 0, "Emergency Fund": 0
                     })
-                
                     user_data = {
-                        "age": st.session_state.get("persona_defaults", {}).get("age",  st.session_state.get("age", "N/A")),
+                        "age": st.session_state.get("persona_defaults", {}).get("age", st.session_state.get("age", "N/A")),
                         "income": st.session_state.get("monthly_income", 0.0),
                         "expenses": st.session_state.get("monthly_expenses", 0.0),
                         "savings": st.session_state.get("current_savings", 0.0),
@@ -2029,7 +2028,6 @@ with tab_calc:
                         "emergency_fund": st.session_state.get("emergency_fund", 0.0),
                     }
                 
-                    # You can craft dynamic recommendations (example below)
                     recs = []
                     if comps.get("Emergency Fund", 0) < 60:
                         recs.append("Increase cash buffer toward 3–6 months of expenses in a high-yield account.")
@@ -2042,14 +2040,18 @@ with tab_calc:
                     if comps.get("Net Worth", 0) < 50:
                         recs.append("Track assets & liabilities monthly to steadily grow net worth.")
                 
-                    pdf_bytes = build_fynstra_pdf(fhi, comps, user_data, recommendations=recs, org_name="BPI")
+                    st.session_state.report_pdf = build_fynstra_pdf(fhi, comps, user_data, recommendations=recs, org_name="BPI")
+                    st.success("Report generated. Use the button below to download.")
                 
+                # show a persistent download button whenever bytes exist
+                if st.session_state.get("report_pdf"):
                     st.download_button(
                         label="⬇️ Download PDF report",
-                        data=pdf_bytes,
+                        data=st.session_state["report_pdf"],
                         file_name=f"fynstra_report_{datetime.now().strftime('%Y%m%d')}.pdf",
                         mime="application/pdf",
-                        use_container_width=True
+                        use_container_width=True,
+                        key="dl_pdf"
                     )
 
         # ===============================
