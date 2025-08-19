@@ -1940,37 +1940,37 @@ with tab_calc:
             st.markdown("---")
             score_col, text_col = st.columns([1, 2])
     
-                with score_col:
-                    fig = create_gauge_chart(FHI_rounded)
-                    st.plotly_chart(fig, use_container_width=True)
-    
-                with text_col:
-                    st.markdown(f"### Overall FHI Score: **{FHI_rounded}/100**")
-    
-                    weak_areas = [c.lower() for c, s in components.items() if s < 60]
-                    weak_text = ""
-                    if weak_areas:
-                        if len(weak_areas) == 1:
-                            weak_text = f" However, your {weak_areas[0]} needs improvement."
-                        else:
-                            all_but_last = ", ".join(weak_areas[:-1])
-                            weak_text = f" However, your {all_but_last} and {weak_areas[-1]} need improvement."
-                        weak_text += " Addressing this will help strengthen your overall financial health."
-    
-                    if FHI >= 85:
-                        st.success(f"🎯 Excellent! You're in great financial shape and well-prepared for the future.{weak_text}")
-                    elif FHI >= 70:
-                        st.info(f"🟢 Good! You have a solid foundation. Stay consistent and work on gaps where needed.{weak_text}")
-                    elif FHI >= 50:
-                        st.warning(f"🟡 Fair. You're on your way, but some areas need attention to build a stronger safety net.{weak_text}")
+            with score_col:
+                fig = create_gauge_chart(FHI_rounded)
+                st.plotly_chart(fig, use_container_width=True)
+
+            with text_col:
+                st.markdown(f"### Overall FHI Score: **{FHI_rounded}/100**")
+
+                weak_areas = [c.lower() for c, s in components.items() if s < 60]
+                weak_text = ""
+                if weak_areas:
+                    if len(weak_areas) == 1:
+                        weak_text = f" However, your {weak_areas[0]} needs improvement."
                     else:
-                        st.error(f"🔴 Needs Improvement. Your finances require urgent attention — prioritize stabilizing your income, debt, and savings.{weak_text}")
-    
-                st.subheader("📈 Financial Health Breakdown")
-                radar_fig = create_component_radar_chart(components)
-                st.plotly_chart(radar_fig, use_container_width=True)
-    
-                st.subheader("📊 Detailed Analysis & Recommendations")
+                        all_but_last = ", ".join(weak_areas[:-1])
+                        weak_text = f" However, your {all_but_last} and {weak_areas[-1]} need improvement."
+                    weak_text += " Addressing this will help strengthen your overall financial health."
+
+                if FHI >= 85:
+                    st.success(f"🎯 Excellent! You're in great financial shape and well-prepared for the future.{weak_text}")
+                elif FHI >= 70:
+                    st.info(f"🟢 Good! You have a solid foundation. Stay consistent and work on gaps where needed.{weak_text}")
+                elif FHI >= 50:
+                    st.warning(f"🟡 Fair. You're on your way, but some areas need attention to build a stronger safety net.{weak_text}")
+                else:
+                    st.error(f"🔴 Needs Improvement. Your finances require urgent attention — prioritize stabilizing your income, debt, and savings.{weak_text}")
+
+            st.subheader("📈 Financial Health Breakdown")
+            radar_fig = create_component_radar_chart(components)
+            st.plotly_chart(radar_fig, use_container_width=True)
+
+            st.subheader("📊 Detailed Analysis & Recommendations")
                 component_descriptions = {
                     "Net Worth": "Your assets minus liabilities — shows your financial position. Higher is better.",
                     "Debt-to-Income": "Proportion of income used to pay debts. Lower is better.",
