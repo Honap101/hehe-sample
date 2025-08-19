@@ -1200,7 +1200,8 @@ def render_floating_chat(ai_available, model):
 
         # Footer: input + actions
         st.markdown("<div class='fynyx-chat-footer'>", unsafe_allow_html=True)
-        form_disabled = not st.session_state.get("consent_processing", False)
+        form_disabled = not (st.session_state.get("consent_processing", False) and
+                             st.session_state.get("consent_ai", False))        
         
         with st.form(key="fyn_chat_form", clear_on_submit=True):
             q = st.text_input("Ask FYNyx", value="", placeholder="e.g., How can I build my emergency fund?", disabled=form_disabled)
@@ -1716,5 +1717,5 @@ st.markdown("*Developed by Team HI-4requency for DataWave 2025*")
 # ===============================
 # RENDER FLOATING CHAT (on all pages)
 # ===============================
-
+st.caption(f"Debug: processing={st.session_state.get('consent_processing', False)}, ai={st.session_state.get('consent_ai', False)}")
 render_floating_chat(AI_AVAILABLE, model)
