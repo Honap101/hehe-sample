@@ -2321,8 +2321,10 @@ with tab_calc:
                     value=float(pdft.get("net_worth", 0.0)),
                     help="Total assets minus total liabilities."
                 )
-                income_for_calc = monthly_income_net if monthly_income_net > 0 else monthly_income
                 
+        monthly_income_net_val = float(st.session_state.get("monthly_income_net", 0.0))
+        income_for_calc = monthly_income_net_val if monthly_income_net_val > 0 else monthly_income
+   
         # Compute & persist results
         if st.button("Check My Financial Health", type="primary", key="calc"):
             handle_calculation_click(
