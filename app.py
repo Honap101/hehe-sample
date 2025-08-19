@@ -18,8 +18,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.graphics.shapes import Drawing, Rect, String
 from reportlab.graphics.charts.barcharts import HorizontalBarChart
-from reportlab.graphics.widgets.markers import makeMarker
-from reportlab.graphics import renderPDF
+
 
 st.set_page_config(page_title="Fynstra", page_icon="⌧", layout="wide")
 
@@ -91,10 +90,6 @@ with st.expander("🔧 Google Sheets connectivity test"):
         except Exception as e:
             st.error(f"Sheets error: {e}")
             st.caption("Hints: Did you share the Sheet with your service account as Editor? Are Sheets/Drive APIs enabled? Is the JSON in secrets with \\n in the private_key?")
-
-
-SCORE_TARGET = 70
-SCORE_BANDS = [(0, 50, "salmon"), (50, 70, "gold"), (70, 100, "lightgreen")]
 
 def with_backoff(fn, tries: int = 4):
     """Run fn() with exponential backoff on transient errors."""
