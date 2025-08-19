@@ -7,6 +7,7 @@ from google.oauth2.service_account import Credentials
 import uuid, hashlib
 from supabase import create_client
 import os
+import time, random
 
 st.set_page_config(page_title="Fynstra", page_icon="⌧", layout="wide")
 
@@ -78,6 +79,34 @@ with st.expander("🔧 Google Sheets connectivity test"):
         except Exception as e:
             st.error(f"Sheets error: {e}")
             st.caption("Hints: Did you share the Sheet with your service account as Editor? Are Sheets/Drive APIs enabled? Is the JSON in secrets with \\n in the private_key?")
+
+
+SCORE_TARGET = 70
+SCORE_BANDS = [(0, 50, "salmon"), (50, 70, "gold"), (70, 100, "lightgreen")]
+
+def with_backoff(fn, tries: int = 4):
+    """Run fn() with exponential backoff on transient errors."""
+    for i in range(tries):
+        try:
+            return fn()
+        except Exception as e:
+            if i == tries - 1:
+                raise
+            time.sleep((2 ** i) + random.random())
+
+def _dump_user(u):
+    """Normalize Supabase user object → plain dict."""
+    return u.model_dump() if hasattr(u, "model_dump") else dict(u)
+
+def consent_required_or_stop():
+    """Hard-stop if user hasn’t consented to processing."""
+    if not st.session_state.get("consent_processing", False):
+        st.warning("Please allow **Processing** in *Privacy & Consent* before running the calculator.")
+        st.stop()
+
+def append_row_safe(ws, row):
+    with_backoff(lambda: ws.append_row(row, value_input_option="USER_ENTERED"))
+
 
 # ===============================
 # GOOGLE SHEETS: TABLES HELPERS
@@ -1015,36 +1044,79 @@ def export_my_data_ui():
         except Exception as e:
             st.warning(f"Export failed: {e}")
 
+def _delete_rows_by_uid(ws, uid: str, uid_col_name: str = "user_id"):
+    """Delete all rows where uid_col_name equals uid (bottom-up to keep indices valid)."""
+    vals = ws.get_all_values()
+    if not vals:
+        return 0
+    header, rows = vals[0], vals[1:]
+    if uid_col_name not in header:
+        return 0
+    uid_idx = header.index(uid_col_name)
+    to_delete = [i + 2 for i, r in enumerate(rows) if len(r) > uid_idx and r[uid_idx] == uid]
+    for row_idx in reversed(to_delete):
+        with_backoff(lambda: ws.delete_rows(row_idx))
+    return len(to_delete)
+
+def _purge_user_everywhere(uid: str):
+    """Best-effort removal of user across Users, Auth_Events, and log sheets."""
+    sh = open_sheet()
+    removed = {}
+    # Primary profile table
+    try:
+        removed["Users"] = _delete_rows_by_uid(sh.worksheet(USERS_SHEET), uid)
+    except Exception:
+        removed["Users"] = 0
+    # Auth events
+    try:
+        removed["Auth_Events"] = _delete_rows_by_uid(sh.worksheet(AUTH_EVENTS_SHEET), uid)
+    except Exception:
+        removed["Auth_Events"] = 0
+    # Per-auth log sheets (guest/email/google/others)
+    for name in ["Log_Guests", "Log_Email", "Log_Google", "Log_Others"]:
+        try:
+            removed[name] = _delete_rows_by_uid(sh.worksheet(name), uid)
+        except Exception:
+            removed[name] = 0
+    return removed
+
 def forget_me_ui():
     if not st.session_state.get("user_id"):
         return
+
     if st.button("🗑️ Delete my saved profile"):
         try:
-            sh = open_sheet()
-            ws = sh.worksheet(USERS_SHEET)
-            vals = ws.get_all_values()
-            header = vals[0]; rows = vals[1:]
-            uid_idx = header.index("user_id")
-            to_delete = None
-            for i, row in enumerate(rows, start=2):
-                if len(row)>uid_idx and row[uid_idx]==st.session_state["user_id"]:
-                    to_delete = i
-                    break
-            if to_delete:
-                ws.delete_rows(to_delete)
-                st.success("Your saved profile has been deleted.")
-                try:
-                    _invalidate_users_cache()
-                except: 
-                    pass
-                for k in ["persona_defaults","FHI","monthly_income","monthly_expenses","current_savings","components"]:
-                    st.session_state.pop(k, None)
-            else:
-                st.info("No saved profile found.")
+            uid = st.session_state["user_id"]
+            removed = _purge_user_everywhere(uid)
+
+            # Reset local state (profile + scores)
+            for k in [
+                "persona_defaults", "FHI", "monthly_income", "monthly_expenses",
+                "current_savings", "components", "email", "display_name"
+            ]:
+                st.session_state.pop(k, None)
+
+            # Reset consent snapshot and gate so the user must review again
+            st.session_state["__consent_snapshot"] = None
+            st.session_state["consent_ready"] = False
+            for flag in ["consent_processing","consent_storage","consent_ai","analytics_opt_in"]:
+                st.session_state[flag] = False
+
+            # Optional: sign out entirely (comment if you want to keep session)
+            if "auth" in st.session_state:
+                st.session_state.auth = {"user": None, "access_token": None}
+
+            st.success(
+                "Your data has been deleted from our Google Sheets logs and profile tables. "
+                "You’ll be asked to review Privacy & Consent again next time."
+            )
+            with st.expander("Deletion details (dev)"):
+                st.json(removed)
+
+            st.rerun()
+
         except Exception as e:
             st.warning(f"Delete failed: {e}")
-            
-
 
 def basic_mode_badge(ai_available: bool) -> str:
     return ("<span style='padding:2px 8px;border-radius:9999px;background:#e2fee2;color:#065f46;font-weight:600;font-size:12px;'>"
@@ -1052,6 +1124,12 @@ def basic_mode_badge(ai_available: bool) -> str:
            ("<span style='padding:2px 8px;border-radius:9999px;background:#fee2e2;color:#7f1d1d;font-weight:600;font-size:12px;'>"
             "Basic Mode</span>")
 
+def privacy_summary_chip():
+    proc = "✅" if st.session_state.get("consent_processing") else "❌"
+    store = "✅" if st.session_state.get("consent_storage") else "❌"
+    ai   = "✅" if st.session_state.get("consent_ai") else "❌"
+    mode = st.session_state.get("retention_mode","session")
+    st.caption(f"Privacy: Processing {proc} • Storage {store} • AI {ai} • Mode: {mode}")
 
 # ===============================
 # SESSION STATE & INITIALIZATION
@@ -1273,6 +1351,7 @@ if st.session_state.get("consent_ready", False):
 st.title("⌧ Fynstra")
 st.markdown("### AI-Powered Financial Health Platform for Filipinos")
 st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_allow_html=True)
+privacy_summary_chip()
 
 try:
     ensure_tables()
@@ -1378,70 +1457,91 @@ with tab_calc:
                 )
     
         if st.button("Check My Financial Health", type="primary"):
-            errors, warnings_ = validate_financial_inputs(monthly_income, monthly_expenses, monthly_debt, monthly_savings)
-    
+            # Enforce consent for processing before any computation
+            consent_required_or_stop()
+        
+            errors, warnings_ = validate_financial_inputs(
+                monthly_income, monthly_expenses, monthly_debt, monthly_savings
+            )
+        
             if errors:
                 for error in errors:
                     st.error(error)
                 st.info("💡 Please review your inputs and try again.")
-            elif monthly_income == 0 or monthly_expenses == 0:
+                st.stop()
+        
+            if monthly_income == 0 or monthly_expenses == 0:
                 st.warning("Please input your income and expenses.")
-            else:
-                for w in warnings_:
-                    st.warning(w)
-    
-                FHI, components = calculate_fhi(age, monthly_income, monthly_expenses, monthly_savings,
-                                                monthly_debt, total_investments, net_worth, emergency_fund)
-                FHI_rounded = round(FHI, 2)
-
-                # --- AUTO-SAVE user profile if logged in (no button needed) ---
-                if st.session_state.get("auth_method") == "email" and st.session_state.get("user_id"):
-                    if st.session_state.get("consent_storage", False):
-                        user_stub = {
-                            "id": st.session_state["user_id"],
-                            "email": st.session_state.get("email"),
-                            "user_metadata": {"username": st.session_state.get("display_name")}
-                        }
-                        upsert_user_row(user_stub, payload={
-                            "age": age,
-                            "monthly_income": monthly_income,
-                            "monthly_expenses": monthly_expenses,
-                            "monthly_savings": monthly_savings,
-                            "monthly_debt": monthly_debt,
-                            "total_investments": total_investments,
-                            "net_worth": net_worth,
-                            "emergency_fund": emergency_fund,
-                            "last_FHI": FHI_rounded
-                        })
-                        # optional: lightweight toast + event log
-                        st.toast("Autosaved profile to Google Sheet ✅", icon="✅")
-                        log_auth_event("profile_autosaved", user_stub, note="Saved after calculation")
-                    else:
-                        st.caption("Autosave is off (you disabled storage).")
-                
-                # --- ADD: Save to Google Sheet (respects your consent gate) ---
+                st.stop()
+        
+            for w in warnings_:
+                st.warning(w)
+        
+            # --- Compute FHI
+            FHI, components = calculate_fhi(
+                age, monthly_income, monthly_expenses, monthly_savings,
+                monthly_debt, total_investments, net_worth, emergency_fund
+            )
+            FHI_rounded = round(FHI, 2)
+        
+            # --- Optional autosave of the profile (only if email-auth + storage consent)
+            if st.session_state.get("auth_method") == "email" and st.session_state.get("user_id"):
                 if st.session_state.get("consent_storage", False):
+                    user_stub = {
+                        "id": st.session_state["user_id"],
+                        "email": st.session_state.get("email"),
+                        "user_metadata": {"username": st.session_state.get("display_name")},
+                    }
+                    # Use backoff within upsert path (upsert already handles errors internally)
+                    upsert_user_row(user_stub, payload={
+                        "age": age,
+                        "monthly_income": monthly_income,
+                        "monthly_expenses": monthly_expenses,
+                        "monthly_savings": monthly_savings,
+                        "monthly_debt": monthly_debt,
+                        "total_investments": total_investments,
+                        "net_worth": net_worth,
+                        "emergency_fund": emergency_fund,
+                        "last_FHI": FHI_rounded
+                    })
+                    st.toast("Autosaved profile to Google Sheet ✅", icon="✅")
                     try:
-                        ident = get_user_identity()
-                        ws_name = worksheet_for(ident)
-                        append_row(ws_name, [
-                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            ident["auth_method"], ident["user_id"], ident["email"], ident["display_name"],
-                            age, monthly_income, monthly_expenses, monthly_savings, monthly_debt,
-                            total_investments, net_worth, emergency_fund, FHI_rounded
+                        log_auth_event("profile_autosaved", user_stub, note="Saved after calculation")
+                    except:
+                        pass
+                else:
+                    st.caption("Autosave is off (you disabled storage).")
+        
+            # --- Append per-calculation row to the appropriate log worksheet (if storage consent)
+            if st.session_state.get("consent_storage", False):
+                try:
+                    ident = get_user_identity()
+                    ws_name = worksheet_for(ident)
+                    sh = open_sheet()
+                    try:
+                        ws = sh.worksheet(ws_name)
+                    except gspread.WorksheetNotFound:
+                        ws = sh.add_worksheet(title=ws_name, rows=1000, cols=30)
+                        append_row_safe(ws, [
+                            "ts","auth_method","user_id","email","display_name",
+                            "age","income","expenses","savings","debt","investments","net_worth","emergency_fund","FHI"
                         ])
-                        st.toast("💾 Saved to Google Sheet", icon="✅")
-                    except Exception as e:
-                        st.warning(f"Could not log to Google Sheet: {e}")
-
-
-
-    
-                st.session_state["FHI"] = FHI_rounded
-                st.session_state["monthly_income"] = monthly_income
-                st.session_state["monthly_expenses"] = monthly_expenses
-                st.session_state["current_savings"] = monthly_savings
-                st.session_state["components"] = components
+                    append_row_safe(ws, [
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        ident["auth_method"], ident["user_id"], ident["email"], ident["display_name"],
+                        age, monthly_income, monthly_expenses, monthly_savings, monthly_debt,
+                        total_investments, net_worth, emergency_fund, FHI_rounded
+                    ])
+                    st.toast("💾 Saved to Google Sheet", icon="✅")
+                except Exception as e:
+                    st.warning(f"Could not log to Google Sheet: {e}")
+        
+            # --- Persist to session for downstream UI
+            st.session_state["FHI"] = FHI_rounded
+            st.session_state["monthly_income"] = monthly_income
+            st.session_state["monthly_expenses"] = monthly_expenses
+            st.session_state["current_savings"] = monthly_savings
+            st.session_state["components"] = components
     
                 st.markdown("---")
     
