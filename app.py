@@ -1200,8 +1200,7 @@ def render_floating_chat(ai_available, model):
 
         # Footer: input + actions
         st.markdown("<div class='fynyx-chat-footer'>", unsafe_allow_html=True)
-        form_disabled = not (st.session_state.get("consent_processing", False) and
-                             st.session_state.get("consent_ai", False))
+        form_disabled = not st.session_state.get("consent_processing", False)
         
         with st.form(key="fyn_chat_form", clear_on_submit=True):
             q = st.text_input("Ask FYNyx", value="", placeholder="e.g., How can I build my emergency fund?", disabled=form_disabled)
