@@ -439,11 +439,9 @@ def render_auth_panel():
                         for flag in ["consent_processing","consent_storage","consent_ai","analytics_opt_in"]:
                             if saved.get(flag) is not None and saved.get(flag) != "":
                                 st.session_state[flag] = str(saved[flag]).lower() in ("true","1")
-                    
+                        
                         if saved.get("consent_ts"):
                             st.session_state["consent_ts"] = saved["consent_ts"]
-                            
-                        if saved.get("consent_ts"):
                             st.session_state["consent_given"] = True
                             
                         if saved.get("age"): st.session_state["persona_defaults"]["age"] = int(float(saved["age"]))
@@ -908,7 +906,27 @@ def init_privacy_state():
     st.session_state.setdefault("consent_given", False)
     st.session_state.setdefault("consent_ts", None)
     st.session_state.setdefault("show_privacy", False)
-        
+
+def ensure_consent_persistence():
+    """Ensure consent choices persist across reruns for guests"""
+    if st.session_state.get("auth_method") == "guest":
+        # For guests, we need to maintain consent in session state
+        # The init_privacy_state() already handles the defaults
+        pass
+    elif st.session_state.get("auth_method") == "email":
+        # For logged-in users, try to load from sheet if not already loaded
+        if not st.session_state.get("consent_given", False):
+            user_id = st.session_state.get("user_id")
+            if user_id:
+                saved = load_user_profile_from_sheet(user_id)
+                if saved:
+                    for flag in ["consent_processing","consent_storage","consent_ai","analytics_opt_in"]:
+                        if saved.get(flag) is not None and saved.get(flag) != "":
+                            st.session_state[flag] = str(saved[flag]).lower() in ("true","1")
+                    if saved.get("consent_ts"):
+                        st.session_state["consent_ts"] = saved["consent_ts"]
+                        st.session_state["consent_given"] = True
+
 def save_user_consents(user_id_email_meta):
     user_stub = {
         "id": user_id_email_meta["id"],
@@ -1227,6 +1245,7 @@ def render_floating_chat(ai_available, model):
 initialize_session_state()
 init_persona_state()
 init_privacy_state()
+ensure_consent_persistence()
 AI_AVAILABLE, model = initialize_ai()
 require_entry_gate()
 
