@@ -225,6 +225,8 @@ def load_user_profile_from_sheet(user_id: str) -> dict | None:
         st.warning(f"Profile load error: {e}")
     return None
 
+
+
 # ===============================
 # AUTH: Supabase helpers
 # ===============================
@@ -323,6 +325,7 @@ def require_entry_gate():
     if st.session_state.entry_mode == "guest":
         return
 
+
 def render_auth_panel():
     supabase = init_supabase()
     init_auth_state()
@@ -352,6 +355,7 @@ def render_auth_panel():
                 st.caption("Check the box to enable deletion.")
     
         return
+
 
     st.markdown("### 🔐 Create an account or log in")
     tab_signup, tab_login = st.tabs(["Sign up", "Log in"])
@@ -436,39 +440,6 @@ def render_auth_panel():
             except Exception as e:
                 st.error(f"Login error: {e}")
 
-def hydrate_consents_from_sheet():
-    """
-    If we have a user_id (guest anon_id or logged-in id) and
-    there's a row in Users sheet, load consent flags into session
-    and refresh the sticky snapshot so UI shows the latest values.
-    """
-    uid = st.session_state.get("user_id")
-    if not uid:
-        return
-    row = load_user_profile_from_sheet(uid)
-    if not row:
-        return
-
-    # Coerce booleans
-    def _b(x): 
-        return str(x).lower() in ("true", "1", "yes", "y")
-
-    st.session_state["consent_processing"] = _b(row.get("consent_processing", False))
-    st.session_state["consent_storage"]    = _b(row.get("consent_storage", False))
-    st.session_state["consent_ai"]         = _b(row.get("consent_ai", False))
-    st.session_state["analytics_opt_in"]   = _b(row.get("analytics_opt_in", False))
-    st.session_state["retention_mode"]     = row.get("retention_mode", st.session_state.get("retention_mode","session"))
-    st.session_state["consent_ts"]         = row.get("consent_ts", st.session_state.get("consent_ts"))
-
-    st.session_state["__consent_snapshot"] = {
-        "consent_processing": st.session_state["consent_processing"],
-        "consent_storage":    st.session_state["consent_storage"],
-        "consent_ai":         st.session_state["consent_ai"],
-        "retention_mode":     st.session_state["retention_mode"],
-        "analytics_opt_in":   st.session_state["analytics_opt_in"],
-        "consent_ts":         st.session_state.get("consent_ts"),
-    }
-    st.session_state["consent_ready"] = True
 
 # ===============================
 # AI & RESPONSE FUNCTIONS
@@ -949,26 +920,7 @@ def render_consent_card():
             st.session_state.consent_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             st.session_state.consent_given = True
             
-            # --- Persist to Google Sheet for both guests and logged-in users ---
-            uid = st.session_state.get("user_id") or _anon_id()  # ensure guest has stable anon_id
-            user_stub = {
-                "id": uid,
-                "email": st.session_state.get("email"),
-                "user_metadata": {"username": st.session_state.get("display_name")},
-            }
-            
-            upsert_user_row(user_stub, payload={
-                # store the flags exactly as chosen
-                "consent_processing": st.session_state.get("consent_processing", False),
-                "consent_storage":    st.session_state.get("consent_storage", False),
-                "consent_ai":         st.session_state.get("consent_ai", False),
-                "analytics_opt_in":   st.session_state.get("analytics_opt_in", False),
-                # optional: store retention choice as a column if you want
-                "consent_version":    CONSENT_VERSION,
-                "consent_ts":         st.session_state.get("consent_ts"),
-            })
-            
-            # --- Refresh sticky snapshot from current choices (source of truth on reruns) ---
+            # Sticky snapshot (source of truth on future reruns)
             st.session_state["__consent_snapshot"] = {
                 "consent_processing": st.session_state.get("consent_processing", False),
                 "consent_storage":    st.session_state.get("consent_storage", False),
@@ -977,12 +929,13 @@ def render_consent_card():
                 "analytics_opt_in":   st.session_state.get("analytics_opt_in", False),
                 "consent_ts":         st.session_state.get("consent_ts"),
             }
-            st.session_state["consent_ready"] = True
+            st.session_state["consent_ready"] = True  # <-- KEY: drives UI
+            
+            # (keep your existing persist-to-Sheets block here if logged in)
             
             st.session_state.show_privacy = False
             st.success("Preferences saved")
             st.rerun()
-
             
 def consent_ok() -> bool:
     """
@@ -1263,8 +1216,6 @@ init_privacy_state()    # <-- must run BEFORE any checks/UI
 # stable guest id early
 if "anon_id" not in st.session_state:
     st.session_state.anon_id = hashlib.sha256(str(uuid.uuid4()).encode()).hexdigest()[:12]
-    
-hydrate_consents_from_sheet()
 
 AI_AVAILABLE, model = initialize_ai()
 require_entry_gate()
@@ -1759,4 +1710,3 @@ with st.expander("🔎 Dev self-check (session integrity)"):
 
     st.write("**Chat**")
     st.write("chat_open:", ss.get("chat_open"))
-
