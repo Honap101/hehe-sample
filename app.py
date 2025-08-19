@@ -827,17 +827,15 @@ CONSENT_VERSION = "v1"
 
 def init_privacy_state():
     """
-    Sticky & idempotent: restore previously saved flags first,
-    then set first-run defaults without overwriting existing values.
+    Sticky + idempotent consent init.
+    - Uses a single 'consent_ready' switch to persist the user's saved choice.
+    - Never overwrites existing values during a rerun.
     """
-    # 1) Restore from a snapshot if it exists (we set this on Save)
-    snap = st.session_state.get("__consent_snapshot")
-    if isinstance(snap, dict):
-        for k, v in snap.items():
-            if k not in st.session_state:
-                st.session_state[k] = v
 
-    # 2) First-run defaults (do NOT overwrite anything already set)
+    # last saved snapshot (set after user clicks Save)
+    snap = st.session_state.get("__consent_snapshot")
+
+    # first-run defaults (do NOT overwrite existing)
     defaults = {
         "consent_processing": False,
         "consent_storage": False,
@@ -846,10 +844,27 @@ def init_privacy_state():
         "analytics_opt_in": False,
         "consent_given": False,
         "consent_ts": None,
+        "consent_ready": False,   # <— NEW: one-bit switch meaning "user saved"
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
+
+    # If the user already saved once, restore their flags deterministically
+    if st.session_state.get("consent_ready"):
+        # prefer latest snapshot if present
+        if isinstance(snap, dict):
+            st.session_state["consent_processing"] = bool(snap.get("consent_processing", True))
+            st.session_state["consent_storage"]    = bool(snap.get("consent_storage",    st.session_state["consent_storage"]))
+            st.session_state["consent_ai"]         = bool(snap.get("consent_ai",         True))
+            st.session_state["retention_mode"]     = snap.get("retention_mode", "session")
+            st.session_state["analytics_opt_in"]   = bool(snap.get("analytics_opt_in",   False))
+            st.session_state["consent_given"]      = True
+            st.session_state["consent_ts"]         = snap.get("consent_ts", st.session_state["consent_ts"])
+        else:
+            # no snapshot? then just ensure processing & AI stay True after first save
+            st.session_state["consent_processing"] = True
+            st.session_state["consent_ai"] = True
 
 
 def save_user_consents(user_id_email_meta):
@@ -913,15 +928,18 @@ def render_consent_card():
             st.session_state.consent_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             st.session_state.consent_given = True
             
+            # Create a sticky snapshot of current choices
             st.session_state["__consent_snapshot"] = {
                 "consent_processing": st.session_state.get("consent_processing", False),
                 "consent_storage":    st.session_state.get("consent_storage", False),
                 "consent_ai":         st.session_state.get("consent_ai", False),
                 "retention_mode":     st.session_state.get("retention_mode", "session"),
                 "analytics_opt_in":   st.session_state.get("analytics_opt_in", False),
-                "consent_given":      True,
                 "consent_ts":         st.session_state.get("consent_ts"),
             }
+            
+            # Mark that the user already saved once; future reruns must respect it
+            st.session_state["consent_ready"] = True
             
             # Persist to Sheets only if logged in (your existing code)
             if st.session_state.get("user_id"):
@@ -934,8 +952,6 @@ def render_consent_card():
             st.session_state.show_privacy = False
             st.success("Preferences saved")
             st.rerun()
-
-
 
 def hash_string(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()[:12]
