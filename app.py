@@ -324,6 +324,29 @@ def require_entry_gate():
     # If guest chosen, proceed (identity already set)
     if st.session_state.entry_mode == "guest":
         return
+        
+def require_consent_gate():
+    """
+    Hard-stop the app until the user has submitted the privacy form at least once.
+    'consent_ready' means they've clicked 'Save privacy preferences' (even if they opt-out of AI/storage).
+    """
+    init_privacy_state()  # make sure defaults are set and snapshot restore is applied
+
+    # If the user is still on the auth flow (not logged in yet), let them finish auth first
+    if st.session_state.get("entry_mode") in ("auth_login", "auth_signup") and not st.session_state.get("auth", {}).get("user"):
+        # keep showing only the auth panel until done
+        st.subheader("Account access")
+        render_auth_panel()
+        st.stop()
+
+    # If consent has not been saved yet, show the form and block everything else
+    if not st.session_state.get("consent_ready", False):
+        st.title("🔐 Privacy & Consent")
+        st.caption("Please review and save your preferences to continue.")
+        render_consent_card()
+        # If they didn’t submit yet, stop here
+        st.info("Save your privacy preferences to continue.")
+        st.stop()
 
 
 def render_auth_panel():
@@ -931,7 +954,18 @@ def render_consent_card():
             }
             st.session_state["consent_ready"] = True  # <-- KEY: drives UI
             
-            # (keep your existing persist-to-Sheets block here if logged in)
+            # Persist consents (save to Users sheet for both logged-in users and guests)
+            identity = get_user_identity()
+            user_stub = {
+                "id": identity["user_id"],
+                "email": identity.get("email"),
+                "user_metadata": {"username": identity.get("display_name")},
+            }
+            save_user_consents({
+                "id": identity["user_id"],
+                "email": identity.get("email"),
+                "display_name": identity.get("display_name"),
+            })
             
             st.session_state.show_privacy = False
             st.success("Preferences saved")
@@ -1219,6 +1253,7 @@ if "anon_id" not in st.session_state:
 
 AI_AVAILABLE, model = initialize_ai()
 require_entry_gate()
+require_consent_gate()
 
 if st.button("⚙️ Privacy & consent settings"):
     st.session_state.show_privacy = True
