@@ -826,19 +826,25 @@ def apply_persona(preset_name):
 CONSENT_VERSION = "v1"
 
 def init_privacy_state():
-    # Don’t reset existing values, only initialize once
+    snap = st.session_state.get("__consent_snapshot")
+    if isinstance(snap, dict):
+        for k, v in snap.items():
+            if k not in st.session_state:
+                st.session_state[k] = v
+
     defaults = {
         "consent_processing": False,
         "consent_storage": False,
         "consent_ai": False,
-        "retention_mode": "session",
+        "retention_mode": "session",    # 'session' or 'ephemeral'
         "analytics_opt_in": False,
-        "consent_given": False,
+        "consent_given": False,         # legacy/compatibility
         "consent_ts": None,
     }
-    for key, default in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = default
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
 
 def save_user_consents(user_id_email_meta):
     user_stub = {
@@ -900,18 +906,30 @@ def render_consent_card():
 
             st.session_state.consent_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             st.session_state.consent_given = True
-
-            # Persist to Sheets only if logged in
+            
+            # Persist a sticky snapshot so future reruns restore the same values
+            st.session_state["__consent_snapshot"] = {
+                "consent_processing": st.session_state.get("consent_processing", False),
+                "consent_storage":    st.session_state.get("consent_storage", False),
+                "consent_ai":         st.session_state.get("consent_ai", False),
+                "retention_mode":     st.session_state.get("retention_mode", "session"),
+                "analytics_opt_in":   st.session_state.get("analytics_opt_in", False),
+                "consent_given":      True,
+                "consent_ts":         st.session_state.get("consent_ts"),
+            }
+            
+            # Persist to Sheets only if logged in (your existing code)
             if st.session_state.get("user_id"):
                 save_user_consents({
                     "id": st.session_state["user_id"],
                     "email": st.session_state.get("email"),
                     "display_name": st.session_state.get("display_name"),
                 })
-
+            
             st.session_state.show_privacy = False
             st.success("Preferences saved")
             st.rerun()
+
 
 
 def hash_string(s: str) -> str:
