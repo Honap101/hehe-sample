@@ -443,11 +443,9 @@ def render_auth_panel():
                         if saved.get("consent_ts"):
                             st.session_state["consent_ts"] = saved["consent_ts"]
                             
-                        if any(st.session_state.get(f, False) for f in
-                               ["consent_processing", "consent_storage", "consent_ai", "analytics_opt_in"]) \
-                           or bool(saved.get("consent_ts")):
+                        if saved.get("consent_ts"):
                             st.session_state["consent_given"] = True
-
+                            
                         if saved.get("age"): st.session_state["persona_defaults"]["age"] = int(float(saved["age"]))
                         for k_src, k_dst in [
                             ("monthly_income","monthly_income"),
@@ -1236,7 +1234,7 @@ if st.button("⚙️ Privacy & consent settings"):
     st.session_state.show_privacy = True
     st.rerun()
 
-if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_given", False):
+if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_processing", False):
     render_consent_card()
 
 # Header with status badge
