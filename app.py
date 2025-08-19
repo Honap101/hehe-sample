@@ -871,51 +871,33 @@ def render_consent_card():
         with st.form("privacy_form", clear_on_submit=False):
             c1, c2 = st.columns(2)
             with c1:
-                st.checkbox(
-                    "Allow processing to compute FHI (required)",
-                    key="consent_processing"
-                )
-                st.checkbox(
-                    "Allow saving my profile & calculations to Google Sheets",
-                    key="consent_storage"
-                )
-                st.checkbox(
-                    "Allow sending my questions/context to the AI provider",
-                    key="consent_ai"
-                )
+                st.checkbox("Allow processing to compute FHI (required)", key="consent_processing")
+                st.checkbox("Allow saving my profile & calculations to Google Sheets", key="consent_storage")
+                st.checkbox("Allow sending my questions/context to the AI provider", key="consent_ai")
             with c2:
-                st.radio(
-                    "Chat data retention",
-                    options=["session","ephemeral"],
-                    key="retention_mode",
-                    horizontal=True
-                )
-                st.checkbox(
-                    "Allow anonymized analytics (counts only)",
-                    key="analytics_opt_in"
-                )
-
-            submitted = st.form_submit_button(
-                "Save privacy preferences",
-                type="primary",
-                disabled=not st.session_state.get("consent_processing", False)
-            )
-
+                st.radio("Chat data retention", options=["session","ephemeral"], key="retention_mode", horizontal=True)
+                st.checkbox("Allow anonymized analytics (counts only)", key="analytics_opt_in")
+        
+            submitted = st.form_submit_button("Save privacy preferences", type="primary")
+        
         if submitted:
-            st.session_state.consent_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            st.session_state.consent_given = True
-            st.session_state.show_privacy = False
+            if not st.session_state.get("consent_processing", False):
+                st.error("You must allow processing to compute FHI to continue.")
+            else:
+                st.session_state.consent_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                st.session_state.consent_given = True
+                st.session_state.show_privacy = False
+        
+                if st.session_state.get("user_id"):  # only persist for signed-in users
+                    save_user_consents({
+                        "id": st.session_state["user_id"],
+                        "email": st.session_state.get("email"),
+                        "display_name": st.session_state.get("display_name")
+                    })
+        
+                st.success("Preferences saved")
+                st.rerun()
 
-            # optionally persist to Sheets if logged in
-            if st.session_state.get("user_id"):
-                save_user_consents({
-                    "id": st.session_state["user_id"],
-                    "email": st.session_state.get("email"),
-                    "display_name": st.session_state.get("display_name")
-                })
-
-            st.success("Preferences saved")
-            st.rerun()
 
 def hash_string(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()[:12]
