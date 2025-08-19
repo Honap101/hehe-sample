@@ -1936,8 +1936,8 @@ with tab_calc:
             st.session_state["monthly_expenses"] = monthly_expenses
             st.session_state["current_savings"] = monthly_savings
             st.session_state["components"] = components
-    
-                st.markdown("---")
+            st.markdown("---")
+            
                 score_col, text_col = st.columns([1, 2])
     
                 with score_col:
