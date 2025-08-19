@@ -534,7 +534,7 @@ def require_consent_gate():
 
     # If consent has not been saved yet, show the form and block everything else
     if not st.session_state.get("consent_ready", False):
-        st.title("🔐 Privacy & Consent")
+        st.title("Privacy & Consent")
         st.caption("Please review and save your preferences to continue.")
         render_consent_card()
         # If they didn’t submit yet, stop here
@@ -1735,70 +1735,6 @@ def render_results_and_report_ui():
             use_container_width=True,
             key="dl_pdf",
         )
-        render_ai_recommendation_block(model)
-
-
-def render_ai_recommendation_block(model):
-    """Big, unlimited AI plan generation using current inputs & component scores."""
-    if "FHI" not in st.session_state or "components" not in st.session_state:
-        return
-
-    st.subheader("🤖 Personalized AI Recommendation")
-    if not consent_ok():
-        st.info("Enable **Allow sending my questions/context to the AI provider** in Privacy & Consent to use this.")
-        return
-
-    if st.button("Generate AI Recommendation", key="ai_reco_btn"):
-        inputs = st.session_state.get("inputs_for_pdf", {}) or {}
-        comps = st.session_state.get("components", {}) or {}
-
-        # Build a rich request for FYNyx (we’ll still pass fhi_context separately)
-        comp_lines = "\n".join([f"- {k}: {float(v):.1f}/100" for k, v in comps.items()])
-        user_question = f"""
-        Please write a comprehensive, step-by-step plan to improve my financial health.
-        My details:
-        - Age: {inputs.get('age','N/A')}
-        - Monthly Income: ₱{inputs.get('income',0):,.0f}
-        - Monthly Expenses: ₱{inputs.get('expenses',0):,.0f}
-        - Monthly Savings: ₱{inputs.get('savings',0):,.0f}
-        - Monthly Debt: ₱{inputs.get('debt',0):,.0f}
-        - Total Investments: ₱{inputs.get('investments',0):,.0f}
-        - Net Worth: ₱{inputs.get('net_worth',0):,.0f}
-        - Emergency Fund: ₱{inputs.get('emergency_fund',0):,.0f}
-
-        Component scores:
-        {comp_lines}
-
-        Include:
-        1) Prioritized actions (with peso amounts and % of income)
-        2) 30/60/90-day plan and monthly “guardrails”
-        3) Budget reallocation table (target savings %, EF months)
-        4) Philippine product ideas (Pag-IBIG MP2, RTBs/Premyo Bonds, PERA, basic index funds)
-        5) Risk notes (job stability, dependents) and KPIs to track
-        No length limit—be as detailed as needed.
-        """
-
-        fhi_context = {
-            'FHI': st.session_state.get('FHI', 0),
-            'income': inputs.get('income', 0),
-            'expenses': inputs.get('expenses', 0),
-            'savings': inputs.get('savings', 0),
-        }
-
-        # Call the same AI function (now unlimited)
-        full_plan = get_ai_response(user_question, fhi_context, model)
-
-        # show + also log to chat history for continuity
-        st.markdown(full_plan)
-        st.session_state.chat_history.append({
-            "question": "Generate a personalized financial plan",
-            "response": full_plan,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "fhi_context": fhi_context,
-            "was_ai_response": True,
-        })
-        prune_chat_history()
-
 
 # ===============================
 # SESSION STATE & INITIALIZATION
