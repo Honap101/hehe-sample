@@ -923,10 +923,19 @@ def ensure_consent_persistence():
                         st.session_state["consent_ts"] = saved["consent_ts"]
                         st.session_state["consent_given"] = True
     elif st.session_state.get("auth_method") == "guest":
-        # For guests, check if they have any consent timestamp (meaning they've saved preferences)
-        if st.session_state.get("consent_ts") and not st.session_state.get("consent_given", False):
-            st.session_state["consent_given"] = True
+        # For guests, session state should already have the values from init_privacy_state()
+        # No additional loading needed since guests don't persist to database
+        pass
 
+def debug_consent_state():
+    """Debug function to show consent state"""
+    if st.session_state.get("auth_method") == "guest":
+        st.write("**Guest Debug:**")
+        st.write(f"- consent_processing: {st.session_state.get('consent_processing', 'NOT SET')}")
+        st.write(f"- consent_ai: {st.session_state.get('consent_ai', 'NOT SET')}")
+        st.write(f"- consent_given: {st.session_state.get('consent_given', 'NOT SET')}")
+        st.write(f"- consent_ts: {st.session_state.get('consent_ts', 'NOT SET')}")
+        
 def save_user_consents(user_id_email_meta):
     user_stub = {
         "id": user_id_email_meta["id"],
@@ -1253,6 +1262,8 @@ require_entry_gate()
 if st.button("⚙️ Privacy & consent settings"):
     st.session_state.show_privacy = True
     st.rerun()
+with st.expander("🔍 Debug Consent State"):
+    debug_consent_state()
 
 if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_given", False):
     render_consent_card()
@@ -1717,5 +1728,4 @@ st.markdown("*Developed by Team HI-4requency for DataWave 2025*")
 # ===============================
 # RENDER FLOATING CHAT (on all pages)
 # ===============================
-st.caption(f"Debug: processing={st.session_state.get('consent_processing', False)}, ai={st.session_state.get('consent_ai', False)}")
 render_floating_chat(AI_AVAILABLE, model)
