@@ -1971,20 +1971,3 @@ st.markdown("*Developed by Team HI-4requency for DataWave 2025*")
 
 render_floating_chat(AI_AVAILABLE, model)
 
-with st.expander("🔎 Dev self-check (session integrity)"):
-    ss = st.session_state
-
-    st.write("**Gate & identity**")
-    st.write("entry_mode:", ss.get("entry_mode"))
-    st.write("auth_method:", ss.get("auth_method"))
-    st.write("user_id:", ss.get("user_id"))
-    st.write("anon_id (exists?):", "anon_id" in ss, ss.get("anon_id"))
-
-    st.write("**Consent flags**")
-    st.write("consent_processing:", ss.get("consent_processing"))
-    st.write("consent_ai:", ss.get("consent_ai"))
-    st.write("consent_storage:", ss.get("consent_storage"))
-    st.write("show_privacy:", ss.get("show_privacy"))
-
-    st.write("**Chat**")
-    st.write("chat_open:", ss.get("chat_open"))
