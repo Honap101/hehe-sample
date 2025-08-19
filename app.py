@@ -1769,7 +1769,7 @@ def basic_mode_badge(ai_available: bool) -> str:
 
 def handle_calculation_click(
     age, monthly_income, monthly_expenses, monthly_savings,
-    monthly_debt, total_investments, net_worth, emergency_fund
+    monthly_debt, total_investments, net_worth, emergency_fund,
     original_gross=None, original_net=None
 
 ):
