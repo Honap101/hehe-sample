@@ -1186,15 +1186,26 @@ def render_floating_chat(ai_available, model):
 initialize_session_state()
 init_persona_state()
 init_privacy_state()
+
+if "anon_id" not in st.session_state:
+    st.session_state.anon_id = hashlib.sha256(str(uuid.uuid4()).encode()).hexdigest()[:12]
+
 AI_AVAILABLE, model = initialize_ai()
 require_entry_gate()
 
+# Show settings button
 if st.button("⚙️ Privacy & consent settings"):
     st.session_state.show_privacy = True
     st.rerun()
 
+# Only show consent UI when needed
 if st.session_state.get("show_privacy", False) or not st.session_state.get("consent_processing", False):
     render_consent_card()
+
+# Only show auth panel if in auth flow
+if st.session_state.entry_mode in ("auth", "auth_login", "auth_signup", "auth"):
+    render_auth_panel()
+
 
 # Header with status badge
 st.title("⌧ Fynstra " + st.markdown(basic_mode_badge(AI_AVAILABLE), unsafe_allow_html=True)._repr_html_() if False else "⌧ Fynstra")
