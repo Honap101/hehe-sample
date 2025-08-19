@@ -826,25 +826,20 @@ def apply_persona(preset_name):
 CONSENT_VERSION = "v1"
 
 def init_privacy_state():
-    if "consent_processing" not in st.session_state:   # required to use calculator
-        st.session_state.consent_processing = False
-    if "consent_storage" not in st.session_state:      # save profile & logs to Sheets
-        st.session_state.consent_storage = False
-    if "consent_ai" not in st.session_state:           # send chat to AI provider
-        st.session_state.consent_ai = False
+    # Don’t reset existing values, only initialize once
+    defaults = {
+        "consent_processing": False,
+        "consent_storage": False,
+        "consent_ai": False,
+        "retention_mode": "session",
+        "analytics_opt_in": False,
+        "consent_given": False,
+        "consent_ts": None,
+    }
+    for key, default in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = default
 
-    if "retention_mode" not in st.session_state:       # 'session' or 'ephemeral'
-        st.session_state.retention_mode = "session"
-    if "analytics_opt_in" not in st.session_state:
-        st.session_state.analytics_opt_in = False
-
-    # legacy flag (only if you still want it for compatibility)
-    if "consent_given" not in st.session_state:
-        st.session_state.consent_given = False
-    if "consent_ts" not in st.session_state:
-        st.session_state.consent_ts = None
-
-        
 def save_user_consents(user_id_email_meta):
     user_stub = {
         "id": user_id_email_meta["id"],
