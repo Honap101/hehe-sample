@@ -4,6 +4,22 @@ import folium
 from streamlit_folium import st_folium
 import math
 from datetime import datetime
+import os
+from dotenv import load_dotenv
+import requests
+from bs4 import BeautifulSoup
+import re
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Get configuration from environment variables
+SCRAPING_ENABLED = os.getenv('SCRAPING_ENABLED', 'true').lower() == 'true'
+SCRAPING_INTERVAL_MINUTES = int(os.getenv('SCRAPING_INTERVAL_MINUTES', '30'))
+MANILA_WATER_URL = os.getenv('MANILA_WATER_URL', 'https://www.manilawater.com/customer/water-interruption')
+MAYNILAD_URL = os.getenv('MAYNILAD_URL', 'https://www.mayniladwater.com.ph/interruption-advisory')
+DEBUG_MODE = os.getenv('DEBUG_MODE', 'false').lower() == 'true'
+CACHE_TTL_HOURS = int(os.getenv('CACHE_TTL_HOURS', '1'))
 
 # Configure page
 st.set_page_config(
@@ -11,6 +27,131 @@ st.set_page_config(
     page_icon="🚨",
     layout="wide"
 )
+
+# Water Interruption Scraper Class
+class WaterInterruptionScraper:
+    def __init__(self):
+        self.manila_water_url = MANILA_WATER_URL
+        self.maynilad_url = MAYNILAD_URL
+        
+        # QC areas served by each company
+        self.manila_water_qc_areas = [
+            "Diliman", "UP Campus", "Quezon City Circle", "East Avenue",
+            "Commonwealth", "Fairview", "Novaliches", "North Fairview",
+            "La Mesa", "Tandang Sora", "Batasan Hills", "Payatas"
+        ]
+        
+        self.maynilad_qc_areas = [
+            "Project 6", "Cubao", "Kamias", "South Triangle",
+            "Teachers Village", "Sikatuna Village", "Sacred Heart"
+        ]
+
+    def scrape_manila_water(self):
+        """Scrape Manila Water interruption data"""
+        if not SCRAPING_ENABLED:
+            return []
+            
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
+            response = requests.get(self.manila_water_url, headers=headers, timeout=10)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            interruptions = []
+            
+            # Look for interruption announcements (adjust selectors based on actual site structure)
+            interruption_items = soup.find_all(['div', 'tr'], class_=re.compile(r'interruption|advisory|announcement'))
+            
+            for item in interruption_items:
+                text = item.get_text(strip=True)
+                
+                # Check if any QC area is mentioned
+                qc_areas_mentioned = [area for area in self.manila_water_qc_areas 
+                                    if area.lower() in text.lower()]
+                
+                if qc_areas_mentioned:
+                    interruptions.append({
+                        'provider': 'Manila Water',
+                        'areas': qc_areas_mentioned,
+                        'description': text[:200] + '...' if len(text) > 200 else text,
+                        'scraped_at': datetime.now()
+                    })
+            
+            return interruptions
+            
+        except Exception as e:
+            if DEBUG_MODE:
+                st.error(f"Error scraping Manila Water: {str(e)}")
+            return []
+
+    def scrape_maynilad(self):
+        """Scrape Maynilad interruption data"""
+        if not SCRAPING_ENABLED:
+            return []
+            
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
+            response = requests.get(self.maynilad_url, headers=headers, timeout=10)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            interruptions = []
+            
+            # Look for interruption announcements
+            interruption_items = soup.find_all(['div', 'tr'], class_=re.compile(r'interruption|advisory|announcement'))
+            
+            for item in interruption_items:
+                text = item.get_text(strip=True)
+                
+                # Check if any QC area is mentioned
+                qc_areas_mentioned = [area for area in self.maynilad_qc_areas 
+                                    if area.lower() in text.lower()]
+                
+                if qc_areas_mentioned:
+                    interruptions.append({
+                        'provider': 'Maynilad',
+                        'areas': qc_areas_mentioned,
+                        'description': text[:200] + '...' if len(text) > 200 else text,
+                        'scraped_at': datetime.now()
+                    })
+            
+            return interruptions
+            
+        except Exception as e:
+            if DEBUG_MODE:
+                st.error(f"Error scraping Maynilad: {str(e)}")
+            return []
+
+    def get_all_qc_interruptions(self):
+        """Get all water interruptions affecting QC"""
+        all_interruptions = []
+        
+        # Scrape both providers
+        manila_interruptions = self.scrape_manila_water()
+        maynilad_interruptions = self.scrape_maynilad()
+        
+        all_interruptions.extend(manila_interruptions)
+        all_interruptions.extend(maynilad_interruptions)
+        
+        return all_interruptions
+
+# Cache water interruptions data
+@st.cache_data(ttl=CACHE_TTL_HOURS*3600)  # Cache for specified hours
+def get_water_interruptions():
+    """Get cached water interruption data"""
+    if not SCRAPING_ENABLED:
+        return []
+    
+    scraper = WaterInterruptionScraper()
+    return scraper.get_all_qc_interruptions()
 
 # Sample data - Replace with verified QC data
 @st.cache_data
@@ -32,11 +173,11 @@ def load_sample_data():
             'E. Rodriguez Sr. Ave, Quezon City'
         ],
         'phone': [
-            '(02) 8863-0800',            # QCGH trunkline
-            '(02) 928-0611',            # EAMC trunkline
-            '(02) 8925-2401 to 50',     # PHC trunkline
-            '(02) 927-6426 to 45',      # VMMC trunkline
-            '(02) 8723-0101'            # St. Luke’s QC
+            '(02) 8863-0800',            
+            '(02) 928-0611',            
+            '(02) 8925-2401 to 50',     
+            '(02) 927-6426 to 45',      
+            '(02) 8723-0101'            
         ],
         'type': 'Hospital',
         'lat': [14.6760, 14.6505, 14.6492, 14.6551, 14.6256],
@@ -84,16 +225,15 @@ def load_sample_data():
             '37 EDSA corner Boni Ave, Mandaluyong (HQ)'
         ],
         'phone': [
-            '(02) 8927-5914 / (02) 8928-4396',  # QCDRRMO
-            '122',                              # QC Helpline (24/7)
-            '143 / (02) 8790-2300'              # Red Cross national HQ hotline
+            os.getenv('QCDRRMO_PHONE', '(02) 8927-5914'),
+            os.getenv('QC_HELPLINE', '122'),
+            '143 / (02) 8790-2300'
         ],
         'type': 'Emergency Service',
         'lat': [14.6507, 14.6507, 14.5794],
         'lon': [121.0498, 121.0498, 121.0565]
     })
 
-    
     return pd.concat([hospitals, evacuation_centers, emergency_services], ignore_index=True)
 
 def calculate_distance(lat1, lon1, lat2, lon2):
@@ -150,13 +290,57 @@ def create_map(data, user_location=None):
     
     return m
 
+def display_water_interruptions():
+    """Display water interruption section"""
+    st.subheader("💧 Water Service Interruptions")
+    
+    if SCRAPING_ENABLED:
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.write("Checking for water service interruptions in QC areas...")
+        with col2:
+            if st.button("🔄 Refresh", key="refresh_water"):
+                st.cache_data.clear()
+        
+        with st.spinner("Loading water service status..."):
+            interruptions = get_water_interruptions()
+        
+        if interruptions:
+            st.warning(f"⚠️ {len(interruptions)} water service interruptions affecting QC areas")
+            
+            for interruption in interruptions:
+                with st.expander(f"{interruption['provider']} - {', '.join(interruption['areas'])}"):
+                    st.write(f"**Provider:** {interruption['provider']}")
+                    st.write(f"**Affected QC Areas:** {', '.join(interruption['areas'])}")
+                    st.write(f"**Details:** {interruption['description']}")
+                    st.write(f"**Last Updated:** {interruption['scraped_at'].strftime('%Y-%m-%d %H:%M')}")
+        else:
+            st.success("✅ No water interruptions currently reported for QC areas")
+    else:
+        st.info("💧 Water interruption monitoring is currently disabled")
+
 # Main app
 def main():
     st.title("🚨 Quezon City Emergency Resource Locator")
     st.markdown("Find essential services and resources during weather emergencies in Quezon City")
     
+    # Show debug info if enabled
+    if DEBUG_MODE:
+        st.sidebar.markdown("### 🔧 Debug Info")
+        st.sidebar.json({
+            "scraping_enabled": SCRAPING_ENABLED,
+            "scraping_interval": SCRAPING_INTERVAL_MINUTES,
+            "cache_ttl_hours": CACHE_TTL_HOURS,
+            "manila_water_url": MANILA_WATER_URL[:50] + "...",
+            "maynilad_url": MAYNILAD_URL[:50] + "..."
+        })
+    
     # Load data
     data = load_sample_data()
+    
+    # Water interruptions section (new!)
+    display_water_interruptions()
+    st.markdown("---")
     
     # Sidebar for filters and location input
     st.sidebar.header("🔍 Search & Filter")
@@ -227,36 +411,17 @@ def main():
     st.subheader("Emergency Hotlines")
     
     emergency_numbers = {
-        "QC Helpline (24/7)": "122",
-        "QCDRRMO": "(02) 8927-5914", #OR (02) 8928-4396
+        "QC Helpline (24/7)": os.getenv('QC_HELPLINE', '122'),
+        "QCDRRMO": os.getenv('QCDRRMO_PHONE', '(02) 8927-5914'),
         "QC Trunkline": "(02) 8988-4242",
         "National Emergency Hotline": "911",
-        "Philippine Red Cross (HQ)": "143" # OR (02) 8790-2300
+        "Philippine Red Cross (HQ)": "143"
     }
     
     cols = st.columns(len(emergency_numbers))
     for i, (service, number) in enumerate(emergency_numbers.items()):
         with cols[i]:
             st.metric(service, number)
-    
-    # # Important notes
-    # st.markdown("---")
-    # st.warning("""
-    # **Important Notes:**
-    # - This is sample data for demonstration purposes only
-    # - Always verify contact information before use in emergencies
-    # - For life-threatening emergencies, call 911 immediately
-    # - Data should be regularly updated with official sources
-    # """)
-    
-    # # Data sources note
-    # st.info("""
-    # **Data Sources to Verify:**
-    # - Quezon City Government Official Website
-    # - Department of Health Hospital Directory
-    # - NDRRMC Evacuation Center Database
-    # - Local Government Unit Contact Lists
-    # """)
 
 if __name__ == "__main__":
     main()
