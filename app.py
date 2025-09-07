@@ -32,11 +32,11 @@ def load_sample_data():
             'E. Rodriguez Sr. Ave, Quezon City'
         ],
         'phone': [
-            '(02) 8988-1000',
-            '(02) 8925-8911',
-            '(02) 8925-2401',
-            '(02) 8927-0001',
-            '(02) 8723-0101'
+            '(02) 8863-0800',            # QCGH trunkline
+            '(02) 928-0611',            # EAMC trunkline
+            '(02) 8925-2401 to 50',     # PHC trunkline
+            '(02) 927-6426 to 45',      # VMMC trunkline
+            '(02) 8723-0101'            # St. Luke’s QC
         ],
         'type': 'Hospital',
         'lat': [14.6760, 14.6505, 14.6492, 14.6551, 14.6256],
@@ -74,30 +74,25 @@ def load_sample_data():
     # Sample emergency services
     emergency_services = pd.DataFrame({
         'name': [
-            'QC Fire Department - District 1',
-            'QC Police Station - QCPD',
-            'Philippine Red Cross QC',
-            'QC Rescue 161',
-            'QC Health Department'
+            'QCDRRMO',
+            'Quezon City Helpline',
+            'Philippine Red Cross (HQ)'
         ],
         'address': [
-            'East Avenue, Diliman, Quezon City',
-            'Camp Karingal, Quezon City',
-            'Scout Albano Street, Quezon City',
-            'City Hall Complex, Quezon City',
-            'City Hall Complex, Quezon City'
+            'Quezon City Hall Complex, Quezon City',
+            'Quezon City Government',
+            '37 EDSA corner Boni Ave, Mandaluyong (HQ)'
         ],
         'phone': [
-            '(02) 8928-1234',
-            '(02) 8806-4455',
-            '(02) 8711-4785',
-            '161',
-            '(02) 8988-4242'
+            '(02) 8927-5914 / (02) 8928-4396',  # QCDRRMO
+            '122',                              # QC Helpline (24/7)
+            '143 / (02) 8790-2300'              # Red Cross national HQ hotline
         ],
         'type': 'Emergency Service',
-        'lat': [14.6505, 14.6712, 14.6278, 14.6507, 14.6507],
-        'lon': [121.0498, 121.0356, 121.0267, 121.0498, 121.0498]
+        'lat': [14.6507, 14.6507, 14.5794],
+        'lon': [121.0498, 121.0498, 121.0565]
     })
+
     
     return pd.concat([hospitals, evacuation_centers, emergency_services], ignore_index=True)
 
@@ -195,13 +190,13 @@ def main():
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.subheader("🗺️ Resource Map")
+        st.subheader("Resource Map")
         user_location = [user_lat, user_lon] if use_location else None
         map_obj = create_map(filtered_data, user_location)
         st_folium(map_obj, width=700, height=500)
     
     with col2:
-        st.subheader("📋 Resource List")
+        st.subheader("Resource List")
         
         if use_location:
             st.markdown("*Sorted by distance from your location*")
@@ -226,37 +221,23 @@ def main():
                             st.write(f"**Phone:** {row['phone']}")
                             if use_location and 'distance_km' in row:
                                 st.write(f"**Distance:** {row['distance_km']:.2f} km")
-                            
-                            # Get Directions button
-                            encoded_address = row['address'].replace(' ', '+').replace(',', '%2C')
-                            directions_url = f"https://www.google.com/maps/dir/?api=1&destination={encoded_address}"
-                            st.markdown(f"[🗺️ Get Directions]({directions_url})")
-        else:
-            st.info("No resources found matching your search criteria.")
-                            
-                            # Get Directions button
-                            encoded_address = row['address'].replace(' ', '+').replace(',', '%2C')
-                            directions_url = f"https://www.google.com/maps/dir/?api=1&destination={encoded_address}"
-                            st.markdown(f"[🗺️ Get Directions]({directions_url})")
-        else:
-            st.info("No resources found matching your search criteria.")
     
     # Emergency hotlines section
     st.markdown("---")
-    st.subheader("🆘 Emergency Hotlines")
+    st.subheader("Emergency Hotlines")
     
     emergency_numbers = {
-        "QC Emergency Response": "161",
+        "QC Helpline (24/7)": "122",
+        "QCDRRMO": "(02) 8927-5914", #OR (02) 8928-4396
+        "QC Trunkline": "(02) 8988-4242",
         "National Emergency Hotline": "911",
-        "Philippine Red Cross": "143",
-        "NDRRMC": "(02) 8911-1406",
-        "QC Disaster Risk Reduction": "(02) 8988-4242"
+        "Philippine Red Cross (HQ)": "143" # OR (02) 8790-2300
     }
     
     cols = st.columns(len(emergency_numbers))
     for i, (service, number) in enumerate(emergency_numbers.items()):
         with cols[i]:
             st.metric(service, number)
-            
+
 if __name__ == "__main__":
     main()
