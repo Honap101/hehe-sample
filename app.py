@@ -228,7 +228,7 @@ def main():
     
     emergency_numbers = {
         "QC Helpline (24/7)": "122",
-        "QCDRRMO": "(02) 8927-5914" #OR (02) 8928-4396
+        "QCDRRMO": "(02) 8927-5914", #OR (02) 8928-4396
         "QC Trunkline": "(02) 8988-4242",
         "National Emergency Hotline": "911",
         "Philippine Red Cross (HQ)": "143" # OR (02) 8790-2300
