@@ -189,13 +189,13 @@ def main():
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.subheader("🗺️ Resource Map")
+        st.subheader("Resource Map")
         user_location = [user_lat, user_lon] if use_location else None
         map_obj = create_map(filtered_data, user_location)
         st_folium(map_obj, width=700, height=500)
     
     with col2:
-        st.subheader("📋 Resource List")
+        st.subheader("Resource List")
         
         if use_location:
             st.markdown("*Sorted by distance from your location*")
@@ -209,7 +209,7 @@ def main():
     
     # Emergency hotlines section
     st.markdown("---")
-    st.subheader("🆘 Emergency Hotlines")
+    st.subheader("Emergency Hotlines")
     
     emergency_numbers = {
         "QC Helpline (24/7)": "122",
@@ -224,24 +224,24 @@ def main():
         with cols[i]:
             st.metric(service, number)
     
-    # Important notes
-    st.markdown("---")
-    st.warning("""
-    **Important Notes:**
-    - This is sample data for demonstration purposes only
-    - Always verify contact information before use in emergencies
-    - For life-threatening emergencies, call 911 immediately
-    - Data should be regularly updated with official sources
-    """)
+    # # Important notes
+    # st.markdown("---")
+    # st.warning("""
+    # **Important Notes:**
+    # - This is sample data for demonstration purposes only
+    # - Always verify contact information before use in emergencies
+    # - For life-threatening emergencies, call 911 immediately
+    # - Data should be regularly updated with official sources
+    # """)
     
-    # Data sources note
-    st.info("""
-    **Data Sources to Verify:**
-    - Quezon City Government Official Website
-    - Department of Health Hospital Directory
-    - NDRRMC Evacuation Center Database
-    - Local Government Unit Contact Lists
-    """)
+    # # Data sources note
+    # st.info("""
+    # **Data Sources to Verify:**
+    # - Quezon City Government Official Website
+    # - Department of Health Hospital Directory
+    # - NDRRMC Evacuation Center Database
+    # - Local Government Unit Contact Lists
+    # """)
 
 if __name__ == "__main__":
     main()
