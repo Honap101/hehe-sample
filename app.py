@@ -32,11 +32,11 @@ def load_sample_data():
             'E. Rodriguez Sr. Ave, Quezon City'
         ],
         'phone': [
-            '(02) 8988-1000',
-            '(02) 8925-8911',
-            '(02) 8925-2401',
-            '(02) 8927-0001',
-            '(02) 8723-0101'
+            '(02) 8863-0800',            # QCGH trunkline
+            '(02) 928-0611',            # EAMC trunkline
+            '(02) 8925-2401 to 50',     # PHC trunkline
+            '(02) 927-6426 to 45',      # VMMC trunkline
+            '(02) 8723-0101'            # St. Luke’s QC
         ],
         'type': 'Hospital',
         'lat': [14.6760, 14.6505, 14.6492, 14.6551, 14.6256],
@@ -44,31 +44,25 @@ def load_sample_data():
     })
     
     # Sample evacuation centers
-    evacuation_centers = pd.DataFrame({
+    emergency_services = pd.DataFrame({
         'name': [
-            'Quezon City Hall Evacuation Center',
-            'Diliman Elementary School',
-            'Commonwealth Elementary School',
-            'Novaliches High School',
-            'Fairview Elementary School'
+            'QCDRRMO',
+            'Quezon City Helpline',
+            'Philippine Red Cross (HQ)'
         ],
         'address': [
-            'Elliptical Road, Diliman, Quezon City',
-            'Roces Avenue, Diliman, Quezon City',
-            'Commonwealth Avenue, Quezon City',
-            'Novaliches, Quezon City',
-            'Fairview, Quezon City'
+            'Quezon City Hall Complex, Quezon City',
+            'Quezon City Government',
+            '37 EDSA corner Boni Ave, Mandaluyong (HQ)'
         ],
         'phone': [
-            '(02) 8988-4242',
-            '(02) 8921-2345',
-            '(02) 8951-1234',
-            '(02) 8931-5678',
-            '(02) 8941-9876'
+            '(02) 8927-5914 / (02) 8928-4396',  # QCDRRMO
+            '122',                              # QC Helpline (24/7)
+            '143 / (02) 8790-2300'              # Red Cross national HQ hotline
         ],
-        'type': 'Evacuation Center',
-        'lat': [14.6507, 14.6548, 14.7123, 14.7281, 14.7612],
-        'lon': [121.0498, 121.0689, 121.0789, 121.0456, 121.0623]
+        'type': 'Emergency Service',
+        'lat': [14.6507, 14.6507, 14.5794],
+        'lon': [121.0498, 121.0498, 121.0565]
     })
     
     # Sample emergency services
@@ -218,11 +212,11 @@ def main():
     st.subheader("🆘 Emergency Hotlines")
     
     emergency_numbers = {
-        "QC Emergency Response": "161",
+        "QC Helpline (24/7)": "122",
+        "QCDRRMO": "(02) 8927-5914 / (02) 8928-4396",
+        "QC Trunkline": "(02) 8988-4242",
         "National Emergency Hotline": "911",
-        "Philippine Red Cross": "143",
-        "NDRRMC": "(02) 8911-1406",
-        "QC Disaster Risk Reduction": "(02) 8988-4242"
+        "Philippine Red Cross (HQ)": "143 / (02) 8790-2300"
     }
     
     cols = st.columns(len(emergency_numbers))
@@ -230,24 +224,24 @@ def main():
         with cols[i]:
             st.metric(service, number)
     
-    # Important notes
-    st.markdown("---")
-    st.warning("""
-    **Important Notes:**
-    - This is sample data for demonstration purposes only
-    - Always verify contact information before use in emergencies
-    - For life-threatening emergencies, call 911 immediately
-    - Data should be regularly updated with official sources
-    """)
+    # # Important notes
+    # st.markdown("---")
+    # st.warning("""
+    # **Important Notes:**
+    # - This is sample data for demonstration purposes only
+    # - Always verify contact information before use in emergencies
+    # - For life-threatening emergencies, call 911 immediately
+    # - Data should be regularly updated with official sources
+    # """)
     
-    # Data sources note
-    st.info("""
-    **Data Sources to Verify:**
-    - Quezon City Government Official Website
-    - Department of Health Hospital Directory
-    - NDRRMC Evacuation Center Database
-    - Local Government Unit Contact Lists
-    """)
+    # # Data sources note
+    # st.info("""
+    # **Data Sources to Verify:**
+    # - Quezon City Government Official Website
+    # - Department of Health Hospital Directory
+    # - NDRRMC Evacuation Center Database
+    # - Local Government Unit Contact Lists
+    # """)
 
 if __name__ == "__main__":
     main()
