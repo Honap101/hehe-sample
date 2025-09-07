@@ -32,11 +32,11 @@ def load_sample_data():
             'E. Rodriguez Sr. Ave, Quezon City'
         ],
         'phone': [
-            '(02) 8863-0800',           # QCGH trunkline
-            '(02) 928-0611',            # EAMC trunkline
-            '(02) 8925-2401 to 50',     # PHC trunkline
-            '(02) 927-6426 to 45',      # VMMC trunkline
-            '(02) 8723-0101'            # St. Luke’s QC
+            '(02) 8988-1000',
+            '(02) 8925-8911',
+            '(02) 8925-2401',
+            '(02) 8927-0001',
+            '(02) 8723-0101'
         ],
         'type': 'Hospital',
         'lat': [14.6760, 14.6505, 14.6492, 14.6551, 14.6256],
@@ -74,23 +74,29 @@ def load_sample_data():
     # Sample emergency services
     emergency_services = pd.DataFrame({
         'name': [
-            'QCDRRMO',
-            'Quezon City Helpline',
-            'Philippine Red Cross (HQ)'
+            'QC Fire Department - District 1',
+            'QC Police Station - QCPD',
+            'Philippine Red Cross QC',
+            'QC Rescue 161',
+            'QC Health Department'
         ],
         'address': [
-            'Quezon City Hall Complex, Quezon City',
-            'Quezon City Government',
-            '37 EDSA corner Boni Ave, Mandaluyong (HQ)'
+            'East Avenue, Diliman, Quezon City',
+            'Camp Karingal, Quezon City',
+            'Scout Albano Street, Quezon City',
+            'City Hall Complex, Quezon City',
+            'City Hall Complex, Quezon City'
         ],
         'phone': [
-            '(02) 8927-5914 / (02) 8928-4396',  # QCDRRMO
-            '122',                              # QC Helpline (24/7)
-            '143 / (02) 8790-2300'              # Red Cross national HQ hotline
+            '(02) 8928-1234',
+            '(02) 8806-4455',
+            '(02) 8711-4785',
+            '161',
+            '(02) 8988-4242'
         ],
         'type': 'Emergency Service',
-        'lat': [14.6507, 14.6507, 14.5794],
-        'lon': [121.0498, 121.0498, 121.0565]
+        'lat': [14.6505, 14.6712, 14.6278, 14.6507, 14.6507],
+        'lon': [121.0498, 121.0356, 121.0267, 121.0498, 121.0498]
     })
     
     return pd.concat([hospitals, evacuation_centers, emergency_services], ignore_index=True)
@@ -200,23 +206,37 @@ def main():
         if use_location:
             st.markdown("*Sorted by distance from your location*")
         
-        for idx, row in filtered_data.iterrows():
-            with st.expander(f"{row['name']} ({row['type']})"):
-                st.write(f"**Address:** {row['address']}")
-                st.write(f"**Phone:** {row['phone']}")
-                if use_location and 'distance_km' in row:
-                    st.write(f"**Distance:** {row['distance_km']:.2f} km")
+        # Get unique resource types
+        resource_types_available = filtered_data['type'].unique()
+        
+        # Create columns for each resource type
+        if len(resource_types_available) > 0:
+            cols = st.columns(min(len(resource_types_available), 3))  # Max 3 columns
+            
+            for i, resource_type in enumerate(resource_types_available):
+                with cols[i % 3]:  # Cycle through columns if more than 3 types
+                    st.markdown(f"**{resource_type}s**")
+                    
+                    # Filter data for this resource type
+                    type_data = filtered_data[filtered_data['type'] == resource_type]
+                    
+                    for idx, row in type_data.iterrows():
+                        with st.expander(f"{row['name']}"):
+                            st.write(f"**Address:** {row['address']}")
+                            st.write(f"**Phone:** {row['phone']}")
+                            if use_location and 'distance_km' in row:
+                                st.write(f"**Distance:** {row['distance_km']:.2f} km")
     
     # Emergency hotlines section
     st.markdown("---")
     st.subheader("Emergency Hotlines")
     
     emergency_numbers = {
-        "QC Helpline (24/7)": "122",
-        "QCDRRMO": "(02) 8927-5914 / (02) 8928-4396",
-        "QC Trunkline": "(02) 8988-4242",
+        "QC Emergency Response": "161",
         "National Emergency Hotline": "911",
-        "Philippine Red Cross (HQ)": "143 / (02) 8790-2300"
+        "Philippine Red Cross": "143",
+        "NDRRMC": "(02) 8911-1406",
+        "QC Disaster Risk Reduction": "(02) 8988-4242"
     }
     
     cols = st.columns(len(emergency_numbers))
@@ -224,24 +244,24 @@ def main():
         with cols[i]:
             st.metric(service, number)
     
-    # # Important notes
-    # st.markdown("---")
-    # st.warning("""
-    # **Important Notes:**
-    # - This is sample data for demonstration purposes only
-    # - Always verify contact information before use in emergencies
-    # - For life-threatening emergencies, call 911 immediately
-    # - Data should be regularly updated with official sources
-    # """)
+    # Important notes
+    st.markdown("---")
+    st.warning("""
+    **Important Notes:**
+    - This is sample data for demonstration purposes only
+    - Always verify contact information before use in emergencies
+    - For life-threatening emergencies, call 911 immediately
+    - Data should be regularly updated with official sources
+    """)
     
-    # # Data sources note
-    # st.info("""
-    # **Data Sources to Verify:**
-    # - Quezon City Government Official Website
-    # - Department of Health Hospital Directory
-    # - NDRRMC Evacuation Center Database
-    # - Local Government Unit Contact Lists
-    # """)
+    # Data sources note
+    st.info("""
+    **Data Sources to Verify:**
+    - Quezon City Government Official Website
+    - Department of Health Hospital Directory
+    - NDRRMC Evacuation Center Database
+    - Local Government Unit Contact Lists
+    """)
 
 if __name__ == "__main__":
     main()
