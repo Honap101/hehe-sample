@@ -9,180 +9,152 @@ import random
 from typing import List, Dict, Optional
 
 class PreciseQCWaterScraper:
-    """
-    Updated scraper based on actual website structure from screenshots
-    """
-    
     def __init__(self):
         self.maynilad_url = 'https://www.mayniladwater.com.ph/service-advisories-2/'
         self.manila_water_url = 'https://www.manilawater.com/customers/service-advisories'
-        
-        # Enhanced session with better headers
+
+        # Keep ONE session; do NOT advertise 'br' unless you can decode it.
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Cache-Control': 'max-age=0'
+            'Referer': 'https://www.google.com/'
         })
 
+    def _decode_html(self, resp: requests.Response) -> str:
+        # Handle Brotli if server still sends it
+        enc = resp.headers.get('Content-Encoding', '').lower()
+        if 'br' in enc:
+            try:
+                import brotli  # pip install brotli or brotlicffi
+                return brotli.decompress(resp.content).decode('utf-8', 'ignore')
+            except Exception:
+                # fallback: let requests guess
+                return resp.text
+        return resp.text
+
+    def scrape_with_robust_retry(self, url: str) -> Optional[BeautifulSoup]:
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15',
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1'
+        ]
+        for i, ua in enumerate(user_agents):
+            try:
+                if i > 0:
+                    time.sleep(random.uniform(2.0, 4.5))
+                self.session.headers['User-Agent'] = ua
+                st.info(f"Trying UA {i+1} for {url}")
+                resp = self.session.get(url, timeout=20)
+                resp.raise_for_status()
+                html = self._decode_html(resp)
+                if len(html) < 400:
+                    st.warning("Got very short HTML; trying next UA…")
+                    continue
+                soup = BeautifulSoup(html, 'lxml')  # faster & more tolerant
+                st.success(f"Fetched OK with UA {i+1}")
+                return soup
+            except Exception as e:
+                st.warning(f"Attempt {i+1} failed: {e}")
+        st.error("All attempts failed")
+        return None
+
     def scrape_maynilad_tables(self, soup: BeautifulSoup) -> List[Dict]:
-        """
-        Extract data from Maynilad's specific table structure
-        Based on the screenshots showing two tables with QC data
-        """
         interruptions = []
-        
         try:
-            # Look for tables containing interruption data
             tables = soup.find_all('table')
-            
-            for table_idx, table in enumerate(tables):
-                st.info(f"Processing Maynilad table {table_idx + 1}...")
-                
-                # Find table headers to understand structure
-                headers = []
-                header_row = table.find('tr')
-                if header_row:
-                    headers = [th.get_text(strip=True) for th in header_row.find_all(['th', 'td'])]
-                
-                # Look for rows with QC data
-                rows = table.find_all('tr')[1:]  # Skip header row
-                
-                for row in rows:
-                    cells = [td.get_text(strip=True) for td in row.find_all(['td', 'th'])]
-                    
-                    if len(cells) < 3:  # Skip rows with insufficient data
+            st.info(f"Maynilad: found {len(tables)} <table> elements")
+            # Path A: true tables
+            for ti, table in enumerate(tables):
+                rows = table.find_all('tr')
+                if len(rows) <= 1:
+                    continue
+                for tr in rows[1:]:
+                    cells = [td.get_text(" ", strip=True) for td in tr.find_all(['td','th'])]
+                    if not cells: 
                         continue
-                    
-                    # Check if this row contains Quezon City data
-                    row_text = ' '.join(cells).lower()
-                    
-                    if 'quezon city' in row_text or 'qc' in row_text:
-                        # Extract data based on expected structure
-                        # From screenshots: City, Barangay, Specific Area, From, To, Time, Reason
-                        
-                        interruption_data = {
+                    row_text = " ".join(cells).lower()
+                    if ('quezon city' in row_text) or re.search(r'\bqc\b', row_text):
+                        interruptions.append({
                             'provider': 'Maynilad',
-                            'source': 'Service Advisories Table',
+                            'source': 'table',
                             'raw_data': cells,
+                            'description': " | ".join(cells),
+                            'areas': ['Quezon City'],
                             'scraped_at': datetime.now()
-                        }
-                        
-                        # Try to map cells to expected columns
-                        if len(cells) >= 6:
-                            interruption_data.update({
-                                'city': cells[0] if len(cells) > 0 else '',
-                                'barangay': cells[1] if len(cells) > 1 else '',
-                                'specific_area': cells[2] if len(cells) > 2 else '',
-                                'date_from': cells[3] if len(cells) > 3 else '',
-                                'date_to': cells[4] if len(cells) > 4 else '',
-                                'time': cells[5] if len(cells) > 5 else '',
-                                'reason': cells[6] if len(cells) > 6 else ''
-                            })
-                            
-                            # Create description
-                            description = f"Maynilad service interruption in {interruption_data['barangay']}, {interruption_data['specific_area']}. "
-                            description += f"Schedule: {interruption_data['date_from']} to {interruption_data['date_to']}, {interruption_data['time']}. "
-                            description += f"Reason: {interruption_data['reason']}"
-                            
-                            interruption_data['description'] = description
-                            interruption_data['areas'] = [interruption_data['barangay']]
-                        
-                        else:
-                            # Fallback for different table structures
-                            interruption_data['description'] = f"Quezon City water service interruption: {' | '.join(cells)}"
-                            interruption_data['areas'] = ['Quezon City']
-                        
-                        interruptions.append(interruption_data)
-            
-            st.success(f"Found {len(interruptions)} Maynilad QC interruptions")
-            
+                        })
+    
+            # Path B: Elementor/WordPress blocks (no <table>)
+            if not interruptions:
+                blocks = soup.select('.elementor-widget-container, article, .wp-block-group, .entry-content, .elementor-section')
+                st.info(f"Maynilad: fallback blocks matched {len(blocks)}")
+                for b in blocks:
+                    text = b.get_text(" ", strip=True)
+                    if not text or len(text) < 80:
+                        continue
+                    if re.search(r'\b(Quezon City|QC)\b', text, flags=re.I):
+                        interruptions.append({
+                            'provider': 'Maynilad',
+                            'source': 'blocks',
+                            'raw_data': text[:1000],
+                            'description': text[:300],
+                            'areas': ['Quezon City'],
+                            'scraped_at': datetime.now()
+                        })
+    
+            st.success(f"Maynilad QC interruptions: {len(interruptions)}")
         except Exception as e:
-            st.error(f"Error parsing Maynilad tables: {str(e)}")
-        
+            st.error(f"Error parsing Maynilad: {e}")
         return interruptions
 
+
     def scrape_manila_water_table(self, soup: BeautifulSoup) -> List[Dict]:
-        """
-        Extract data from Manila Water's table structure
-        Based on screenshot showing: Start, End, Affected City/Municipality, Location, Activity, Affected Areas
-        """
         interruptions = []
-        
         try:
-            # Look for the main data table
             tables = soup.find_all('table')
-            
-            for table_idx, table in enumerate(tables):
-                st.info(f"Processing Manila Water table {table_idx + 1}...")
-                
-                # Find headers
-                headers = []
-                header_row = table.find('tr')
-                if header_row:
-                    headers = [th.get_text(strip=True) for th in header_row.find_all(['th', 'td'])]
-                
-                # Process data rows
-                rows = table.find_all('tr')[1:]  # Skip header
-                
-                for row in rows:
-                    cells = [td.get_text(strip=True) for td in row.find_all(['td', 'th'])]
-                    
-                    if len(cells) < 3:
+            st.info(f"Manila Water: found {len(tables)} <table> elements")
+            for table in tables:
+                rows = table.find_all('tr')
+                if len(rows) <= 1:
+                    continue
+                for tr in rows[1:]:
+                    cells = [td.get_text(" ", strip=True) for td in tr.find_all(['td','th'])]
+                    if not cells:
                         continue
-                    
-                    # Check if this affects Quezon City
-                    row_text = ' '.join(cells).lower()
-                    
-                    # Look for QC indicators
-                    qc_indicators = ['quezon city', 'qc', 'diliman', 'fairview', 'novaliches', 'commonwealth']
-                    
-                    if any(indicator in row_text for indicator in qc_indicators):
-                        interruption_data = {
+                    text = " ".join(cells)
+                    if re.search(r'\b(Quezon City|QC|Diliman|Fairview|Novaliches|Commonwealth)\b', text, flags=re.I):
+                        interruptions.append({
                             'provider': 'Manila Water',
-                            'source': 'Service Advisories Table',
+                            'source': 'table',
                             'raw_data': cells,
+                            'description': " | ".join(cells),
+                            'areas': ['Quezon City'],
                             'scraped_at': datetime.now()
-                        }
-                        
-                        # Map to expected Manila Water structure
-                        if len(cells) >= 6:
-                            interruption_data.update({
-                                'start_date': cells[0] if len(cells) > 0 else '',
-                                'end_date': cells[1] if len(cells) > 1 else '',
-                                'affected_city': cells[2] if len(cells) > 2 else '',
-                                'location': cells[3] if len(cells) > 3 else '',
-                                'activity': cells[4] if len(cells) > 4 else '',
-                                'affected_areas': cells[5] if len(cells) > 5 else ''
-                            })
-                            
-                            # Create description
-                            description = f"Manila Water {interruption_data['activity']} in {interruption_data['affected_city']}. "
-                            description += f"Location: {interruption_data['location']}. "
-                            description += f"Schedule: {interruption_data['start_date']} to {interruption_data['end_date']}. "
-                            description += f"Affected areas: {interruption_data['affected_areas']}"
-                            
-                            interruption_data['description'] = description
-                            interruption_data['areas'] = [interruption_data['affected_areas']]
-                        
-                        else:
-                            interruption_data['description'] = f"Manila Water service advisory: {' | '.join(cells)}"
-                            interruption_data['areas'] = ['Quezon City']
-                        
-                        interruptions.append(interruption_data)
-            
-            st.success(f"Found {len(interruptions)} Manila Water QC interruptions")
-            
+                        })
+    
+            if not interruptions:
+                # fallback to cards/lists
+                cards = soup.select('.views-row, .card, article, .entry-content, .mw-advisory, .node')
+                st.info(f"Manila Water: fallback blocks matched {len(cards)}")
+                for c in cards:
+                    text = c.get_text(" ", strip=True)
+                    if len(text) < 80:
+                        continue
+                    if re.search(r'\b(Quezon City|QC|Diliman|Fairview|Novaliches|Commonwealth)\b', text, flags=re.I):
+                        interruptions.append({
+                            'provider': 'Manila Water',
+                            'source': 'blocks',
+                            'raw_data': text[:1000],
+                            'description': text[:300],
+                            'areas': ['Quezon City'],
+                            'scraped_at': datetime.now()
+                        })
+    
+            st.success(f"Manila Water QC interruptions: {len(interruptions)}")
         except Exception as e:
-            st.error(f"Error parsing Manila Water tables: {str(e)}")
-        
+            st.error(f"Error parsing Manila Water: {e}")
         return interruptions
 
     def scrape_with_robust_retry(self, url: str) -> Optional[BeautifulSoup]:
