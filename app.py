@@ -224,24 +224,24 @@ def main():
         with cols[i]:
             st.metric(service, number)
     
-    # # Important notes
-    # st.markdown("---")
-    # st.warning("""
-    # **Important Notes:**
-    # - This is sample data for demonstration purposes only
-    # - Always verify contact information before use in emergencies
-    # - For life-threatening emergencies, call 911 immediately
-    # - Data should be regularly updated with official sources
-    # """)
+    # Important notes
+    st.markdown("---")
+    st.warning("""
+    **Important Notes:**
+    - This is sample data for demonstration purposes only
+    - Always verify contact information before use in emergencies
+    - For life-threatening emergencies, call 911 immediately
+    - Data should be regularly updated with official sources
+    """)
     
-    # # Data sources note
-    # st.info("""
-    # **Data Sources to Verify:**
-    # - Quezon City Government Official Website
-    # - Department of Health Hospital Directory
-    # - NDRRMC Evacuation Center Database
-    # - Local Government Unit Contact Lists
-    # """)
+    # Data sources note
+    st.info("""
+    **Data Sources to Verify:**
+    - Quezon City Government Official Website
+    - Department of Health Hospital Directory
+    - NDRRMC Evacuation Center Database
+    - Local Government Unit Contact Lists
+    """)
 
 if __name__ == "__main__":
     main()
