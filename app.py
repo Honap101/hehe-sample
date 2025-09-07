@@ -16,8 +16,8 @@ load_dotenv()
 # Get configuration from environment variables
 SCRAPING_ENABLED = os.getenv('SCRAPING_ENABLED', 'true').lower() == 'true'
 SCRAPING_INTERVAL_MINUTES = int(os.getenv('SCRAPING_INTERVAL_MINUTES', '30'))
-MANILA_WATER_URL = os.getenv('MANILA_WATER_URL', 'https://www.manilawater.com/customer/water-interruption')
-MAYNILAD_URL = os.getenv('MAYNILAD_URL', 'https://www.mayniladwater.com.ph/interruption-advisory')
+MANILA_WATER_URL = os.getenv('MANILA_WATER_URL', 'https://www.manilawater.com/customers/service-advisories')
+MAYNILAD_URL = os.getenv('MAYNILAD_URL', 'https://www.mayniladwater.com.ph/service-advisories-2/')
 DEBUG_MODE = os.getenv('DEBUG_MODE', 'false').lower() == 'true'
 CACHE_TTL_HOURS = int(os.getenv('CACHE_TTL_HOURS', '1'))
 
